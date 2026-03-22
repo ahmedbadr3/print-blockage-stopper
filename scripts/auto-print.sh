@@ -177,24 +177,54 @@ if echo "$PRINTER_STATUS" | grep -qi "disabled"; then
     cupsenable "$CUPS_NAME" 2>/dev/null || true
 fi
 
-# ── Send print job ──────────────────────────────────────────────
+# ── Send print job (with retry) ──────────────────────────────────
 log "Sending maintenance print..."
 
-JOB_OUTPUT=$(/usr/bin/lp -d "$CUPS_NAME" \
-    -o media="$PAPER_SIZE" \
-    -o fit-to-page \
-    -o orientation-requested=3 \
-    "$IMAGE" 2>&1) || {
-    log "ERROR: Print failed. $JOB_OUTPUT"
-    write_status "error" "Print failed: $JOB_OUTPUT"
-    write_history "error" "Print job failed"
-    notify_unraid "Print FAILED — $PRINTER_NAME" "Could not submit job. Check printer connection."
-    exit 1
+attempt_print() {
+    /usr/bin/lp -d "$CUPS_NAME" \
+        -o media="$PAPER_SIZE" \
+        -o fit-to-page \
+        -o orientation-requested=3 \
+        "$IMAGE" 2>&1
+}
+
+JOB_OUTPUT=$(attempt_print) || {
+    log "WARNING: First attempt failed. Retrying in 30 seconds..."
+    sleep 30
+
+    # Re-enable printer if it went into error state
+    cupsenable "$CUPS_NAME" 2>/dev/null || true
+
+    JOB_OUTPUT=$(attempt_print) || {
+        log "ERROR: Print failed after retry. $JOB_OUTPUT"
+        write_status "error" "Print failed after retry: $JOB_OUTPUT"
+        write_history "error" "Print job failed (after retry)"
+        notify_unraid "Print FAILED — $PRINTER_NAME" "Could not submit job after 2 attempts. Check printer connection."
+
+        # Send webhook notification if configured
+        WEBHOOK_URL="${WEBHOOK_URL:-}"
+        if [ -n "$WEBHOOK_URL" ]; then
+            curl -sf -X POST "$WEBHOOK_URL" \
+                -H "Content-Type: application/json" \
+                -d "{\"event\":\"print_failed\",\"printer\":\"$PRINTER_NAME\",\"printer_id\":\"$PRINTER_ID\",\"message\":\"Print failed after 2 attempts\",\"timestamp\":\"$(timestamp)\"}" \
+                2>/dev/null || true
+        fi
+        exit 1
+    }
 }
 
 log "SUCCESS: $JOB_OUTPUT"
 write_status "ok" "Print job submitted successfully"
 write_history "ok" "Print job submitted"
+
+# Send webhook notification on success if configured
+WEBHOOK_URL="${WEBHOOK_URL:-}"
+if [ -n "$WEBHOOK_URL" ]; then
+    curl -sf -X POST "$WEBHOOK_URL" \
+        -H "Content-Type: application/json" \
+        -d "{\"event\":\"print_ok\",\"printer\":\"$PRINTER_NAME\",\"printer_id\":\"$PRINTER_ID\",\"message\":\"Print job submitted\",\"timestamp\":\"$(timestamp)\"}" \
+        2>/dev/null || true
+fi
 
 # ── Log rotation (keep last 1000 lines for multi-printer) ────────
 if [ -f "$LOG_FILE" ] && [ "$(wc -l < "$LOG_FILE")" -gt 1000 ]; then

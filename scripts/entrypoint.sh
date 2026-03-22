@@ -2,7 +2,7 @@
 ###############################################################################
 # entrypoint.sh — Service startup, optional legacy printer setup, cron install
 #
-# v1.3: Multi-printer support. Printers are managed via the dashboard.
+# v1.4: Connection status, ink levels, retry logic, webhooks, CSV export
 #       PRINTER_IP is optional — if set, it auto-adds that printer on first run
 #       for backward compatibility. New users just open the dashboard.
 ###############################################################################
@@ -21,6 +21,7 @@ CONNECTION="${CONNECTION:-ipp}"
 PAPER_SIZE="${PAPER_SIZE:-A4}"
 SCHEDULE="${SCHEDULE:-0 10 */3 * *}"
 SKIP_HOURS="${SKIP_HOURS:-72}"
+WEBHOOK_URL="${WEBHOOK_URL:-}"
 
 # Validate PRINTER_PORT if set
 if [ -n "$PRINTER_PORT" ]; then
@@ -62,7 +63,7 @@ log "Paper size:       $PAPER_SIZE"
 PRINTERS_FILE="/data/printers.json"
 if [ ! -f "$PRINTERS_FILE" ]; then
     log "Creating printers.json..."
-    echo "{\"printers\": [], \"global\": {\"schedule\": \"$SCHEDULE\", \"skip_hours\": $SKIP_HOURS}}" > "$PRINTERS_FILE"
+    echo "{\"printers\": [], \"global\": {\"schedule\": \"$SCHEDULE\", \"skip_hours\": $SKIP_HOURS, \"webhook_url\": \"$WEBHOOK_URL\"}}" > "$PRINTERS_FILE"
 fi
 
 # ── Start CUPS ──────────────────────────────────────────────────
@@ -171,7 +172,7 @@ for p in data.get('printers', []):
     if not p.get('paused', False):
         sched = p.get('schedule', '$SCHEDULE')
         pid = p['id']
-        lines.append(f'{sched} /app/auto-print.sh --printer-id={pid} >> /data/logs/cron.log 2>&1')
+        lines.append(f'{sched} . /etc/environment; /app/auto-print.sh --printer-id={pid} >> /data/logs/cron.log 2>&1')
 cron = '\n'.join(lines) + '\n' if lines else ''
 import subprocess
 subprocess.run(['bash', '-c', f'echo \"{cron}\" | crontab -'], capture_output=True)
@@ -183,6 +184,19 @@ print(f'  {num} cron job(s) installed')
 log "Starting cron daemon..."
 cron
 
+# ── Export WEBHOOK_URL from config (for cron jobs) ────────────────
+WEBHOOK_URL_FROM_CONFIG=$(python3 -c "
+import json
+data = json.load(open('$PRINTERS_FILE'))
+print(data.get('global', {}).get('webhook_url', ''))
+" 2>/dev/null) || WEBHOOK_URL_FROM_CONFIG=""
+
+# Prefer config file value, fall back to env var
+export WEBHOOK_URL="${WEBHOOK_URL_FROM_CONFIG:-$WEBHOOK_URL}"
+
+# Write to /etc/environment so cron jobs inherit it
+echo "WEBHOOK_URL=\"$WEBHOOK_URL\"" >> /etc/environment
+
 # ── Start web UI ────────────────────────────────────────────────
 log "Starting web UI on port 8631..."
 python3 /app/webui.py &
@@ -191,7 +205,7 @@ python3 /app/webui.py &
 NUM_PRINTERS=$(python3 -c "import json; print(len(json.load(open('$PRINTERS_FILE')).get('printers',[])))" 2>/dev/null) || NUM_PRINTERS=0
 
 log "============================================================"
-log " print-blockage-stopper v1.3 is running"
+log " print-blockage-stopper v1.4 is running"
 log " Dashboard:  http://localhost:8631"
 log " CUPS UI:    http://localhost:631"
 log " Printers:   $NUM_PRINTERS configured"

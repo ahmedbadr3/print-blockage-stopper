@@ -5,7 +5,7 @@
 # healthy by sending a small test print on a schedule. Supports multiple
 # printers, mDNS discovery, custom test images, and a web dashboard.
 #
-# v1.3: Multi-printer, auto-discovery, preset + custom test images
+# v1.4: Connection status, ink levels, retry logic, webhooks, CSV export
 ###############################################################################
 
 FROM debian:bookworm-slim
@@ -106,6 +106,7 @@ COPY scripts/generate-presets.py /app/generate-presets.py
 COPY scripts/entrypoint.sh /app/entrypoint.sh
 COPY scripts/auto-print.sh /app/auto-print.sh
 COPY scripts/webui.py /app/webui.py
+COPY scripts/printer_probe.py /app/printer_probe.py
 
 RUN chmod +x /app/entrypoint.sh /app/auto-print.sh
 
@@ -123,12 +124,14 @@ VOLUME ["/data"]
 # PAPER_SIZE:    Default media size (A4, Letter, etc.)
 # CONNECTION:    Default connection type: ipp or socket
 # SKIP_HOURS:    Default skip-if-recently-printed window (hours)
+# WEBHOOK_URL:   (Optional) URL for success/failure notifications
 ENV PRINTER_IP="" \
     PRINTER_PORT="9100" \
     SCHEDULE="0 10 */3 * *" \
     PAPER_SIZE="A4" \
     CONNECTION="ipp" \
-    SKIP_HOURS="72"
+    SKIP_HOURS="72" \
+    WEBHOOK_URL=""
 
 # ── Expose ports ──────────────────────────────────────────────
 EXPOSE 631

@@ -32,6 +32,16 @@
   <Requires>Any network printer with IPP Everywhere support (usually any modern networked printer). Especially useful for pigment printers.</Requires>
   <Beta>false</Beta>
   <Changes>
+    ### 1.4.0
+    - Inline printer rename (double-click name to edit)
+    - Test Connection button with auto-detect printer model
+    - Real-time connection status indicators (green/red dots)
+    - Ink level bars (via IPP marker attributes)
+    - Print retry logic (auto-retry once after 30s on failure)
+    - Webhook notifications for print success/failure (Slack, Discord, ntfy)
+    - CSV export for print history
+    - Test image thumbnails on printer cards
+    - Mobile-responsive layout improvements
     ### 1.3.0
     - Multi-printer support (add/remove from dashboard)
     - Network printer auto-discovery (mDNS/IPP)
@@ -118,6 +128,16 @@
     Display="advanced"
     Required="false"
     Mask="false">ipp</Config>
+
+  <Config
+    Name="Webhook URL"
+    Target="WEBHOOK_URL"
+    Default=""
+    Description="(Optional) URL for print success/failure notifications. Works with Slack incoming webhooks, Discord webhooks, ntfy.sh, or any endpoint accepting JSON POST."
+    Type="Variable"
+    Display="advanced"
+    Required="false"
+    Mask="false"></Config>
 
   <Config
     Name="Printer Port"

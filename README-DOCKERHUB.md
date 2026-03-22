@@ -13,6 +13,12 @@ Pigment printers—especially wide-format models—clog when they sit idle. This
 - **Custom image upload** — use your own test pattern (up to 5 MB)
 - **Web dashboard** — per-printer status, schedule controls, print history chart
 - **Pause/resume** — toggle schedules per-printer from the dashboard
+- **Connection status** — real-time green/red indicators per printer
+- **Ink levels** — live ink level bars via IPP attributes
+- **Auto-retry** — retries failed prints once after 30 seconds
+- **Webhook notifications** — Slack, Discord, ntfy compatible alerts
+- **CSV export** — download print history as CSV
+- **Mobile-friendly** — responsive dashboard layout
 - **Unraid notifications** — get alerts on print failures
 
 ## Quick start
@@ -58,6 +64,7 @@ All settings are optional — printers can be added entirely from the dashboard.
 | `SKIP_HOURS` | `72` | Skip print if printer was used within this many hours |
 | `CONNECTION` | `ipp` | Connection type: `ipp` or `socket` |
 | `PRINTER_PORT` | `9100` | Socket port (only with `CONNECTION=socket`) |
+| `WEBHOOK_URL` | *(empty)* | URL for success/failure notifications (Slack, Discord, ntfy) |
 
 ### Schedule examples
 
@@ -91,6 +98,11 @@ The dashboard at port 8631 lets you:
 - Select preset test images (4/6/8/11/12-colour)
 - Upload custom test images
 - Trigger immediate prints
+- Test printer connection and auto-detect model
+- View real-time ink levels
+- Rename printers inline
+- Configure webhook notifications
+- Export print history as CSV
 
 ## Requirements
 
