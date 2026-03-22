@@ -304,6 +304,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
         pass
 
     def do_GET(self):
+        if self.path == "/favicon.ico":
+            try:
+                with open("/app/favicon.ico", "rb") as f:
+                    ico = f.read()
+                self.send_response(200)
+                self.send_header("Content-Type", "image/x-icon")
+                self.send_header("Content-Length", len(ico))
+                self.send_header("Cache-Control", "public, max-age=86400")
+                self.end_headers()
+                self.wfile.write(ico)
+            except FileNotFoundError:
+                self.send_error(404)
+            return
         if self.path == "/":
             self._serve_dashboard()
         elif self.path == "/api/printers":
@@ -825,6 +838,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Print Blockage Stopper</title>
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
 <style>
   * {{ margin: 0; padding: 0; box-sizing: border-box; }}
   body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
