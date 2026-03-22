@@ -513,6 +513,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     sel = "selected" if up["id"] == test_img else ""
                     img_options += f'<option value="{up["id"]}" {sel}>{html_mod.escape(up["label"])}</option>'
 
+                cur_sched = p.get("schedule", "0 10 */3 * *")
+
                 printer_cards += f"""
       <div class="card printer-card" data-id="{p["id"]}">
         <div class="printer-header">
@@ -530,8 +532,21 @@ class Handler(http.server.BaseHTTPRequestHandler):
         </div>
         <div class="printer-controls">
           <div class="control-group">
-            <label>Schedule:</label>
-            <code>{html_mod.escape(p.get("schedule", "0 10 */3 * *"))}</code>
+            <label>Print every:</label>
+            <select class="input-sm select-sm" id="freq-{p["id"]}"
+                    onchange="updateSchedule('{p["id"]}')" data-cron="{html_mod.escape(cur_sched)}">
+              <option value="1">Day</option>
+              <option value="2">2 days</option>
+              <option value="3">3 days</option>
+              <option value="4">4 days</option>
+              <option value="5">5 days</option>
+              <option value="7">Week</option>
+              <option value="14">2 weeks</option>
+            </select>
+            <label style="min-width:auto;">at</label>
+            <select class="input-sm select-sm" id="hour-{p["id"]}"
+                    onchange="updateSchedule('{p["id"]}')" style="max-width:100px;">
+            </select>
             <span class="schedule-state" style="color:{sched_colour}">{sched_state}</span>
             <button class="btn btn-sm" style="background:{pause_colour}" onclick="toggleSchedule('{p["id"]}')">{pause_label}</button>
           </div>
@@ -697,6 +712,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
         <label for="addPaper">Paper Size</label>
         <input type="text" id="addPaper" value="A4" maxlength="20">
       </div>
+      <div>
+        <label for="addFreq">Print every</label>
+        <select id="addFreq">
+          <option value="1">Day</option>
+          <option value="2">2 days</option>
+          <option value="3" selected>3 days</option>
+          <option value="4">4 days</option>
+          <option value="5">5 days</option>
+          <option value="7">Week</option>
+          <option value="14">2 weeks</option>
+        </select>
+      </div>
+      <div>
+        <label for="addHour">At</label>
+        <select id="addHour"></select>
+      </div>
       <div class="full">
         <button class="btn btn-primary" onclick="addPrinter()" id="addBtn">Add Printer</button>
         <span class="btn-msg" id="addMsg" style="margin-left:10px;"></span>
@@ -784,16 +815,76 @@ function removePrinter(id) {{
   api('/api/printers/remove', 'POST', {{ id }}).then(() => location.reload());
 }}
 
+// ── Schedule helpers ─────────────────────────────────────
+function buildCron(days, hour) {{
+  const m = 0;
+  if (days == 1) return `${{m}} ${{hour}} * * *`;
+  if (days == 7) return `${{m}} ${{hour}} * * 1`;
+  if (days == 14) return `${{m}} ${{hour}} 1,15 * *`;
+  return `${{m}} ${{hour}} */${{days}} * *`;
+}}
+
+function parseCron(cron) {{
+  // Returns {{ days: number, hour: number }} or defaults
+  const parts = cron.trim().split(/\s+/);
+  if (parts.length < 5) return {{ days: 3, hour: 10 }};
+  const hour = parseInt(parts[1]) || 10;
+  const dom = parts[2];
+  const dow = parts[4];
+  if (dow === '1' && dom === '*') return {{ days: 7, hour }};
+  if (dom === '1,15') return {{ days: 14, hour }};
+  if (dom.startsWith('*/')) return {{ days: parseInt(dom.slice(2)) || 3, hour }};
+  if (dom === '*' && dow === '*') return {{ days: 1, hour }};
+  return {{ days: 3, hour }};
+}}
+
+function populateHourSelect(selectEl, selectedHour) {{
+  selectEl.innerHTML = '';
+  for (let h = 0; h < 24; h++) {{
+    const label = h === 0 ? '12:00 AM' : h < 12 ? `${{h}}:00 AM` : h === 12 ? '12:00 PM' : `${{h-12}}:00 PM`;
+    const opt = document.createElement('option');
+    opt.value = h;
+    opt.textContent = label;
+    if (h === selectedHour) opt.selected = true;
+    selectEl.appendChild(opt);
+  }}
+}}
+
+function initSchedulePickers() {{
+  // Init existing printer schedule pickers
+  document.querySelectorAll('[id^="freq-"]').forEach(sel => {{
+    const id = sel.id.replace('freq-', '');
+    const cron = sel.dataset.cron || '0 10 */3 * *';
+    const parsed = parseCron(cron);
+    sel.value = parsed.days;
+    const hourSel = document.getElementById('hour-' + id);
+    if (hourSel) populateHourSelect(hourSel, parsed.hour);
+  }});
+  // Init add-printer hour picker
+  const addHour = document.getElementById('addHour');
+  if (addHour) populateHourSelect(addHour, 10);
+}}
+
+function updateSchedule(id) {{
+  const days = document.getElementById('freq-' + id).value;
+  const hour = document.getElementById('hour-' + id).value;
+  const cron = buildCron(days, hour);
+  updatePrinter(id, {{ schedule: cron }});
+}}
+
 function addPrinter() {{
   const ip = document.getElementById('addIp').value.trim();
   if (!ip) {{ setMsg('addMsg', 'IP address is required', 3000); return; }}
   const btn = document.getElementById('addBtn');
   btn.disabled = true;
+  const days = document.getElementById('addFreq').value;
+  const hour = document.getElementById('addHour').value;
   api('/api/printers/add', 'POST', {{
     name: document.getElementById('addName').value.trim() || ('Printer at ' + ip),
     ip,
     connection: document.getElementById('addConn').value,
-    paper_size: document.getElementById('addPaper').value.trim() || 'A4'
+    paper_size: document.getElementById('addPaper').value.trim() || 'A4',
+    schedule: buildCron(days, hour)
   }}).then(d => {{
     btn.disabled = false;
     if (d.ok) location.reload();
@@ -911,6 +1002,7 @@ function refreshLogs() {{
 }}
 
 renderChart();
+initSchedulePickers();
 setInterval(refreshLogs, 30000);
 </script>
 </body>
