@@ -1010,7 +1010,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
     <a href="/printers" target="_blank">CUPS Printer Status (port 631)</a>
   </div>
 
-  <div class="footer">print-blockage-stopper v1.4</div>
+  <div class="footer">print-blockage-stopper v1.4.1</div>
 </div>
 
 <script>
@@ -1233,13 +1233,27 @@ function uploadImage() {{
 }}
 
 function refreshThumb(id) {{
-  api('/api/thumbnail/' + id, 'GET').then(d => {{
-    const card = document.querySelector(`[data-id="${{id}}"]`);
-    if (card && d.thumbnail) {{
-      const old = card.querySelector('.thumb');
-      if (old) old.src = d.thumbnail;
-    }}
-  }});
+  // Delay to let server save the updated test_image first
+  setTimeout(() => {{
+    api('/api/thumbnail/' + id, 'GET').then(d => {{
+      const card = document.querySelector(`[data-id="${{id}}"]`);
+      if (!card || !d.thumbnail) return;
+      let img = card.querySelector('.thumb');
+      if (img) {{
+        img.src = d.thumbnail;
+      }} else {{
+        // Create thumbnail if it didn't exist before
+        const sel = card.querySelector('[id^="img-"]');
+        if (sel) {{
+          img = document.createElement('img');
+          img.className = 'thumb';
+          img.alt = 'test image';
+          img.src = d.thumbnail;
+          sel.parentNode.insertBefore(img, sel.nextSibling);
+        }}
+      }}
+    }});
+  }}, 500);
 }}
 
 // ── Webhook ─────────────────────────────────────────────
