@@ -264,6 +264,24 @@ class Handler(http.server.BaseHTTPRequestHandler):
         elif self.path.startswith("/api/probe/"):
             ip = self.path.split("/")[-1]
             self._json_response(probe_printer(ip))
+        elif self.path.startswith("/api/download-image/"):
+            pid = self.path.split("/")[-1]
+            data = read_printers()
+            printer = next((p for p in data["printers"] if p["id"] == pid), None)
+            if printer:
+                path = get_test_image_path(printer)
+                if os.path.exists(path):
+                    fname = os.path.basename(path)
+                    self.send_response(200)
+                    self.send_header("Content-Type", "image/png")
+                    self.send_header("Content-Disposition", f'attachment; filename="{fname}"')
+                    with open(path, "rb") as f:
+                        img_data = f.read()
+                    self.send_header("Content-Length", str(len(img_data)))
+                    self.end_headers()
+                    self.wfile.write(img_data)
+                    return
+            self.send_error(404)
         elif self.path.startswith("/api/thumbnail/"):
             pid = self.path.split("/")[-1]
             data = read_printers()
@@ -582,6 +600,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
             <button class="btn btn-sm" style="background:{pause_colour}" onclick="toggleSchedule('{p["id"]}')">{pause_label}</button>
           </div>
           <div class="control-group">
+            <label>Paper size:</label>
+            <select class="input-sm select-sm" id="paper-{p["id"]}"
+                    onchange="updatePrinter('{p["id"]}', {{paper_size: this.value}})">
+              {"".join(f'<option value="{ps}"{" selected" if ps == p.get("paper_size", "A4") else ""}>{ps}</option>' for ps in ["A4", "Letter", "Legal", "A3", "A5", "B5", "4x6", "5x7"])}
+            </select>
+          </div>
+          <div class="control-group">
             <label>Skip if active within:</label>
             <input type="number" class="input-sm" value="{p.get("skip_hours", 72)}" min="1" max="720"
                    id="skip-{p["id"]}" onchange="updatePrinter('{p["id"]}', {{skip_hours: parseInt(this.value)}})">
@@ -594,6 +619,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
               {img_options}
             </select>
             {thumb_html}
+            <a href="/api/download-image/{p["id"]}" class="btn btn-sm" style="padding:2px 8px;font-size:0.75rem;text-decoration:none;" title="Download test image">&#x2B07; Download</a>
           </div>
           <div class="btn-row">
             <button class="btn btn-primary btn-sm" onclick="printNow('{p["id"]}')">Print Now</button>
