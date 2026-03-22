@@ -124,7 +124,8 @@ ENV PRINTER_IP="" \
     PRINTER_PORT="9100" \
     SCHEDULE="0 10 */3 * *" \
     PAPER_SIZE="A4" \
-    CONNECTION="ipp"
+    CONNECTION="ipp" \
+    SKIP_HOURS="72"
 
 # ── Expose ports ──────────────────────────────────────────────
 EXPOSE 631

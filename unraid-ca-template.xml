@@ -114,6 +114,16 @@
     Required="false"
     Mask="false">9100</Config>
 
+  <Config
+    Name="Skip If Printed Within (hours)"
+    Target="SKIP_HOURS"
+    Default="72"
+    Description="Skip the scheduled maintenance print if the printer had a real print job within this many hours. Default: 72 (3 days). Adjustable from the dashboard."
+    Type="Variable"
+    Display="always"
+    Required="false"
+    Mask="false">72</Config>
+
   <!-- ── Volumes ──────────────────────────────────────────── -->
   <Config
     Name="Data / Logs"

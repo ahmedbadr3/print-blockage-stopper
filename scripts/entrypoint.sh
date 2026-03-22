@@ -59,6 +59,13 @@ if ! echo "$SCHEDULE" | grep -qE '^[0-9\*\/,\-]+[[:space:]]+[0-9\*\/,\-]+[[:spac
     exit 1
 fi
 
+# SKIP_HOURS — must be numeric, 1-720
+SKIP_HOURS="${SKIP_HOURS:-72}"
+if ! echo "$SKIP_HOURS" | grep -qE '^[0-9]{1,3}$' || [ "$SKIP_HOURS" -lt 1 ] || [ "$SKIP_HOURS" -gt 720 ]; then
+    log "ERROR: SKIP_HOURS must be a number between 1 and 720. Got: $SKIP_HOURS"
+    exit 1
+fi
+
 # ── Determine printer URI ───────────────────────────────────────
 if [ "$CONNECTION" = "socket" ]; then
     PRINTER_URI="socket://${PRINTER_IP}:${PRINTER_PORT}"
@@ -72,6 +79,14 @@ log "Printer IP:    $PRINTER_IP"
 log "Connection:    $PRINTER_URI"
 log "Schedule:      $SCHEDULE"
 log "Paper size:    $PAPER_SIZE"
+log "Skip hours:    $SKIP_HOURS"
+
+# ── Initialise config (if not already present) ────────────────
+CONFIG_FILE="/data/config.json"
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo "{\"paused\": false, \"skip_hours\": $SKIP_HOURS}" > "$CONFIG_FILE"
+    log "Created config file with defaults."
+fi
 
 # ── Start CUPS ──────────────────────────────────────────────────
 log "Starting CUPS daemon..."
