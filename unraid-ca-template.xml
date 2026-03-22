@@ -32,6 +32,17 @@
   <Requires>Any network printer with IPP Everywhere support (usually any modern networked printer). Especially useful for pigment printers.</Requires>
   <Beta>false</Beta>
   <Changes>
+    ### 1.4.1
+    - Next scheduled print countdown on each printer card
+    - Custom test image delete button
+    - Favicon for browser tab
+    - New app icon
+    - Security hardening (CSRF protection, XSS fixes, SSRF prevention, Content-Security-Policy)
+    - Fixed chart alignment in print history
+    - Fixed thumbnail not updating when changing test image
+    - Replaced deprecated cgi module, use threaded HTTP server
+    - CUPS config now persists across container restarts
+    - Portable grep for broader Linux compatibility
     ### 1.4.0
     - Inline printer rename (double-click name to edit)
     - Test Connection button with auto-detect printer model
