@@ -1,0 +1,33 @@
+# Documentation — not needed in the image
+README-DOCKERHUB.md
+README.md
+LICENSE
+PUBLISHING.md
+CHANGELOG.md
+*.md
+
+# Unraid CA template — distribution metadata, not runtime
+unraid-ca-template.xml
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Docker
+Dockerfile
+docker-compose*.yml
+.dockerignore
+
+# IDE / OS junk
+.vscode
+.idea
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# CI/CD
+.github
+.gitlab-ci.yml

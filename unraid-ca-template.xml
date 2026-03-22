@@ -1,0 +1,137 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>print-blockage-stopper</Name>
+  <Repository>abadrdh/print-blockage-stopper</Repository>
+  <Registry>https://hub.docker.com/r/abadrdh/print-blockage-stopper</Registry>
+  <Branch>
+    <Tag>latest</Tag>
+    <TagDescription>Latest stable release</TagDescription>
+  </Branch>
+  <Network>bridge</Network>
+  <Privileged>false</Privileged>
+  <ExtraParams>--cap-drop=ALL --cap-add=DAC_OVERRIDE --cap-add=CHOWN --cap-add=FOWNER --cap-add=SETUID --cap-add=SETGID --security-opt=no-new-privileges</ExtraParams>
+  <Support>https://github.com/ahmedbadr3/print-blockage-stopper/issues</Support>
+  <Project>https://github.com/ahmedbadr3/print-blockage-stopper</Project>
+  <Overview>
+    Automated maintenance prints for any network printer (especially pigment printers like Canon imagePROGRAF, Epson SureColor, HP DesignJet, etc.).
+
+    Sends a small test image on a configurable schedule (default: every 3 days) to keep all ink channels flowing and prevent costly pigment clogs and cleaning cycles. Works with any IPP-capable printer.
+
+    Includes a built-in CUPS server, GutenPrint drivers, test image, and cron scheduler — just point it at your printer's IP and go.
+  </Overview>
+  <Category>Productivity: Tools:</Category>
+  <WebUI>http://[IP]:[PORT:8631]</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/ahmedbadr3/unraid-templates/main/print-blockage-stopper.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/ahmedbadr3/print-blockage-stopper/main/icon.png</Icon>
+  <Description>
+    Keeps any network printer's print head healthy by automatically sending a small test print on a schedule. Prevents pigment ink clogs without wasting ink on full cleaning cycles. Works with Canon imagePROGRAF, Epson SureColor, HP DesignJet, and other IPP Everywhere compatible printers.
+  </Description>
+  <DateInstalled></DateInstalled>
+  <DonateText>Buy me a coffee</DonateText>
+  <DonateLink></DonateLink>
+  <Requires>Any network printer with IPP Everywhere support (usually any modern networked printer). Especially useful for pigment printers.</Requires>
+  <Beta>false</Beta>
+  <Changes>
+    ### 1.0.0
+    - Initial release
+    - All 11 ink channels exercised with minimal-ink test image
+    - Built-in CUPS + GutenPrint drivers
+    - Configurable cron schedule
+    - CUPS web UI for monitoring
+  </Changes>
+
+  <!-- ── Ports ────────────────────────────────────────────── -->
+  <Config
+    Name="Dashboard"
+    Target="8631"
+    Default="8631"
+    Mode="tcp"
+    Description="Web dashboard with status, logs, and Print Now button."
+    Type="Port"
+    Display="always"
+    Required="true"
+    Mask="false">8631</Config>
+
+  <Config
+    Name="CUPS Web UI"
+    Target="631"
+    Default="631"
+    Mode="tcp"
+    Description="CUPS print server interface for advanced monitoring."
+    Type="Port"
+    Display="advanced"
+    Required="false"
+    Mask="false">631</Config>
+
+  <!-- ── Environment Variables ────────────────────────────── -->
+  <Config
+    Name="Printer IP Address"
+    Target="PRINTER_IP"
+    Default=""
+    Description="IP address of your printer on the local network. Find it in your router's DHCP list or on the printer under Settings → LAN Settings."
+    Type="Variable"
+    Display="always"
+    Required="true"
+    Mask="false"></Config>
+
+  <Config
+    Name="Print Schedule"
+    Target="SCHEDULE"
+    Default="0 10 */3 * *"
+    Description="Cron expression for how often to print. Default: every 3 days at 10 AM. Examples: '0 10 */4 * *' (every 4 days), '0 8 * * 1,4' (Mon+Thu at 8 AM)."
+    Type="Variable"
+    Display="always"
+    Required="true"
+    Mask="false">0 10 */3 * *</Config>
+
+  <Config
+    Name="Paper Size"
+    Target="PAPER_SIZE"
+    Default="A4"
+    Description="Paper size loaded in the printer (e.g., A4, Letter, A3)."
+    Type="Variable"
+    Display="always"
+    Required="true"
+    Mask="false">A4</Config>
+
+  <Config
+    Name="Connection Type"
+    Target="CONNECTION"
+    Default="ipp"
+    Description="How to connect to the printer: 'ipp' (recommended) or 'socket' (port 9100)."
+    Type="Variable"
+    Display="advanced"
+    Required="false"
+    Mask="false">ipp</Config>
+
+  <Config
+    Name="Printer Port"
+    Target="PRINTER_PORT"
+    Default="9100"
+    Description="Port for socket connection (only used when Connection Type is 'socket')."
+    Type="Variable"
+    Display="advanced"
+    Required="false"
+    Mask="false">9100</Config>
+
+  <!-- ── Volumes ──────────────────────────────────────────── -->
+  <Config
+    Name="Data / Logs"
+    Target="/data"
+    Default="/mnt/user/appdata/print-blockage-stopper"
+    Description="Persistent storage for logs and CUPS configuration."
+    Type="Path"
+    Display="always"
+    Required="true"
+    Mask="false">/mnt/user/appdata/print-blockage-stopper</Config>
+
+  <Config
+    Name="Unraid Notifications"
+    Target="/unraid/notify"
+    Default="/usr/local/emhttp/webGui/scripts/notify"
+    Description="Mount Unraid's notification script to get alerts on print failures. Leave default for standard Unraid installs."
+    Type="Path"
+    Display="advanced"
+    Required="false"
+    Mask="false">/usr/local/emhttp/webGui/scripts/notify</Config>
+</Container>
