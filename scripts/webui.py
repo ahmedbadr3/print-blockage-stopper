@@ -1276,8 +1276,18 @@ function deleteImage(imageId) {{
     if (d.ok) {{
       const el = document.getElementById('upl-' + imageId);
       if (el) el.remove();
-      // Remove from all dropdowns
-      document.querySelectorAll(`option[value="${{imageId}}"]`).forEach(o => o.remove());
+      // Remove from all dropdowns and refresh thumbnails for affected printers
+      document.querySelectorAll(`option[value="${{imageId}}"]`).forEach(o => {{
+        const sel = o.parentElement;
+        const wasSelected = o.selected;
+        o.remove();
+        if (wasSelected) {{
+          // Reset dropdown to preset-11 and refresh thumbnail
+          sel.value = 'preset-11';
+          const id = sel.id.replace('img-', '');
+          refreshThumb(id);
+        }}
+      }});
     }} else {{
       alert(d.message || 'Delete failed');
     }}
