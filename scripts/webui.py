@@ -241,6 +241,49 @@ def get_image_thumbnail_b64(printer):
     except Exception:
         return ""
 
+# ── Cron next-fire calculation ──────────────────────────────────
+
+def cron_next(cron_expr):
+    """Calculate the next fire time for a simple cron expression.
+    Handles the subset we generate: minute hour dom month dow."""
+    parts = cron_expr.strip().split()
+    if len(parts) < 5:
+        return None
+    minute = int(parts[0]) if parts[0] != "*" else 0
+    hour = int(parts[1]) if parts[1] != "*" else 0
+    dom = parts[2]   # *, */N
+    dow = parts[4]   # *, 1 (Monday)
+
+    now = datetime.now()
+    # Start from the next occurrence of the target hour:minute
+    candidate = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if candidate <= now:
+        candidate = candidate + __import__("datetime").timedelta(days=1)
+
+    # Try up to 400 days to find a match
+    td = __import__("datetime").timedelta
+    for _ in range(400):
+        # Check day-of-week constraint
+        if dow != "*":
+            if str(candidate.weekday() + 1) != dow and str(candidate.isoweekday()) != dow:
+                # Python: Monday=0, cron: Monday=1
+                candidate += td(days=1)
+                continue
+        # Check day-of-month constraint
+        if dom.startswith("*/"):
+            step = int(dom[2:])
+            if step > 0 and (candidate.day - 1) % step != 0:
+                candidate += td(days=1)
+                continue
+        elif dom != "*":
+            # Specific days like "1,15"
+            allowed = [int(d) for d in dom.split(",")]
+            if candidate.day not in allowed:
+                candidate += td(days=1)
+                continue
+        return candidate
+    return None
+
 # ── Cron management ─────────────────────────────────────────────
 
 def update_cron():
@@ -278,6 +321,23 @@ class Handler(http.server.BaseHTTPRequestHandler):
         elif self.path.startswith("/api/status/"):
             pid = self.path.split("/")[-1]
             self._json_response(get_printer_status(pid))
+        elif self.path.startswith("/api/next-print/"):
+            pid = self.path.split("/")[-1]
+            data = read_printers()
+            printer = next((p for p in data["printers"] if p["id"] == pid), None)
+            if printer:
+                paused = printer.get("paused", False)
+                if paused:
+                    self._json_response({"next_iso": None, "paused": True})
+                else:
+                    sched = printer.get("schedule", data["global"]["schedule"])
+                    nxt = cron_next(sched)
+                    self._json_response({
+                        "next_iso": nxt.isoformat() if nxt else None,
+                        "paused": False
+                    })
+            else:
+                self._json_response({"next_iso": None, "paused": False})
         elif self.path.startswith("/api/probe/"):
             ip = self.path.split("/")[-1]
             self._json_response(probe_printer(ip))
@@ -713,6 +773,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             {thumb_html}
             <a href="/api/download-image/{p["id"]}" class="btn btn-sm" style="padding:2px 8px;font-size:0.75rem;text-decoration:none;" title="Download test image">&#x2B07; Download</a>
           </div>
+          <div class="next-print meta" id="next-{p["id"]}">Next print: calculating...</div>
           <div class="btn-row">
             <button class="btn btn-primary btn-sm" onclick="printNow('{p["id"]}')">Print Now</button>
             <span class="btn-msg" id="msg-{p["id"]}"></span>
@@ -769,6 +830,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
   /* Thumbnail */
   .thumb {{ height: 40px; border-radius: 4px; border: 1px solid #334155; vertical-align: middle; margin-left: 6px; }}
+
+  .next-print {{ font-size: 0.82rem; color: #94a3b8; padding: 4px 0; }}
+  .next-print strong {{ color: #e2e8f0; }}
 
   .btn {{ color: white; border: none; border-radius: 8px; padding: 10px 24px; font-size: 0.95rem;
           cursor: pointer; font-weight: 500; transition: all 0.15s; }}
@@ -1239,14 +1303,77 @@ function refreshAllStatus() {{
   }});
 }}
 
+// ── Next print countdown ────────────────────────────────
+const nextPrintTimes = {{}};
+
+function formatCountdown(ms) {{
+  if (ms <= 0) return 'now';
+  const d = Math.floor(ms / 86400000);
+  const h = Math.floor((ms % 86400000) / 3600000);
+  const m = Math.floor((ms % 3600000) / 60000);
+  let parts = [];
+  if (d > 0) parts.push(d + 'd');
+  if (h > 0) parts.push(h + 'h');
+  parts.push(m + 'm');
+  return parts.join(' ');
+}}
+
+function formatNextDate(iso) {{
+  const d = new Date(iso);
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const h = d.getHours();
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+  const min = String(d.getMinutes()).padStart(2, '0');
+  return `${{months[d.getMonth()]}} ${{d.getDate()}}, ${{h12}}:${{min}} ${{ampm}}`;
+}}
+
+function refreshNextPrint() {{
+  document.querySelectorAll('.printer-card').forEach(card => {{
+    const id = card.dataset.id;
+    api('/api/next-print/' + id, 'GET').then(d => {{
+      const el = document.getElementById('next-' + id);
+      if (!el) return;
+      if (d.paused) {{
+        el.innerHTML = 'Next print: <strong style="color:#f59e0b;">paused</strong>';
+        delete nextPrintTimes[id];
+        return;
+      }}
+      if (d.next_iso) {{
+        nextPrintTimes[id] = new Date(d.next_iso);
+        updateCountdownDisplay(id);
+      }} else {{
+        el.textContent = 'Next print: unknown';
+      }}
+    }}).catch(() => {{}});
+  }});
+}}
+
+function updateCountdownDisplay(id) {{
+  const el = document.getElementById('next-' + id);
+  const target = nextPrintTimes[id];
+  if (!el || !target) return;
+  const ms = target.getTime() - Date.now();
+  const dateStr = formatNextDate(target.toISOString());
+  const countdown = formatCountdown(ms);
+  el.innerHTML = `Next print: <strong>${{esc(dateStr)}}</strong> (in ${{esc(countdown)}})`;
+}}
+
+function updateAllCountdowns() {{
+  Object.keys(nextPrintTimes).forEach(updateCountdownDisplay);
+}}
+
 // ── Init ────────────────────────────────────────────────
 renderChart();
 initSchedulePickers();
 probeAllPrinters();
 refreshAllStatus();
+refreshNextPrint();
 setInterval(refreshLogs, 30000);
 setInterval(refreshAllStatus, 15000);  // Re-check print status every 15s
 setInterval(probeAllPrinters, 60000);  // Re-check connectivity every 60s
+setInterval(refreshNextPrint, 60000);  // Re-fetch next print times every 60s
+setInterval(updateAllCountdowns, 60000);  // Update countdown display every 60s
 </script>
 </body>
 </html>"""
