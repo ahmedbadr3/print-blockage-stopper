@@ -78,11 +78,11 @@ if [ ! -f "$PRINTERS_FILE" ]; then
 fi
 
 # ── Read printer config from JSON ────────────────────────────────
-PRINTER_JSON=$(python3 -c "
-import json, sys
-data = json.load(open('$PRINTERS_FILE'))
+PRINTER_JSON=$(PBS_PRINTERS_FILE="$PRINTERS_FILE" PBS_PRINTER_ID="$PRINTER_ID" python3 -c "
+import json, sys, os
+data = json.load(open(os.environ['PBS_PRINTERS_FILE']))
 for p in data.get('printers', []):
-    if p['id'] == '$PRINTER_ID':
+    if p['id'] == os.environ['PBS_PRINTER_ID']:
         json.dump(p, sys.stdout)
         sys.exit(0)
 sys.exit(1)
@@ -91,14 +91,22 @@ sys.exit(1)
     exit 1
 }
 
-# Extract fields
-CUPS_NAME=$(echo "$PRINTER_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['cups_name'])")
-PRINTER_NAME=$(echo "$PRINTER_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('name','Unknown'))")
-PRINTER_IP=$(echo "$PRINTER_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('ip',''))")
-PAPER_SIZE=$(echo "$PRINTER_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('paper_size','A4'))")
-SKIP_HOURS=$(echo "$PRINTER_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('skip_hours',72))")
-IS_PAUSED=$(echo "$PRINTER_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('paused',False))")
-TEST_IMAGE_ID=$(echo "$PRINTER_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('test_image','preset-11'))")
+# Extract all fields in a single Python call
+eval "$(echo "$PRINTER_JSON" | python3 -c "
+import json, sys, shlex
+p = json.load(sys.stdin)
+fields = {
+    'CUPS_NAME': p.get('cups_name', ''),
+    'PRINTER_NAME': p.get('name', 'Unknown'),
+    'PRINTER_IP': p.get('ip', ''),
+    'PAPER_SIZE': p.get('paper_size', 'A4'),
+    'SKIP_HOURS': str(p.get('skip_hours', 72)),
+    'IS_PAUSED': str(p.get('paused', False)),
+    'TEST_IMAGE_ID': p.get('test_image', 'preset-11'),
+}
+for k, v in fields.items():
+    print(f'{k}={shlex.quote(v)}')
+")"
 
 # Resolve test image path
 resolve_image() {
@@ -119,7 +127,7 @@ resolve_image() {
 IMAGE_ORIG=$(resolve_image "$TEST_IMAGE_ID")
 
 # Stamp printer info onto a temp copy of the image
-PRINTER_MODEL=$(echo "$PRINTER_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('model',''))" 2>/dev/null) || PRINTER_MODEL=""
+PRINTER_MODEL=$(echo "$PRINTER_JSON" | python3 -c "import json, sys; print(json.load(sys.stdin).get('model', ''))" 2>/dev/null) || PRINTER_MODEL=""
 STAMPED_IMAGE="/tmp/stamped-${PRINTER_ID}.png"
 python3 /app/stamp_image.py "$IMAGE_ORIG" "$STAMPED_IMAGE" "$PRINTER_NAME" "$PRINTER_IP" "$PRINTER_MODEL" 2>/dev/null && {
     IMAGE="$STAMPED_IMAGE"
@@ -141,7 +149,7 @@ if [ "$FORCE" = false ]; then
     SKIP_SECONDS=$((SKIP_HOURS * 3600))
     NOW=$(epoch_now)
 
-    LAST_JOB_TIME=$(lpstat -W completed -o "$CUPS_NAME" 2>/dev/null | tail -n 1 | grep -oP '\d{2} \w+ \d{4} \d{2}:\d{2}' | head -1) || true
+    LAST_JOB_TIME=$(lpstat -W completed -o "$CUPS_NAME" 2>/dev/null | tail -n 1 | grep -oE '[0-9]{2} [A-Za-z]+ [0-9]{4} [0-9]{2}:[0-9]{2}' | head -1) || true
 
     if [ -n "$LAST_JOB_TIME" ]; then
         LAST_JOB_EPOCH=$(date -d "$LAST_JOB_TIME" '+%s' 2>/dev/null) || LAST_JOB_EPOCH=0

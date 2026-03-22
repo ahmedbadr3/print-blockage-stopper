@@ -16,8 +16,8 @@ Full-featured dashboard with:
 """
 
 import base64
-import cgi
 import csv
+import fcntl
 import http.server
 import io
 import json
@@ -37,8 +37,10 @@ LOG_FILE = f"{DATA_DIR}/logs/auto-print.log"
 UPLOADS_DIR = f"{DATA_DIR}/uploads"
 PRESETS_DIR = "/app/presets"
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024
+THUMBS_DIR = f"{DATA_DIR}/thumbnails"
 
 os.makedirs(UPLOADS_DIR, exist_ok=True)
+os.makedirs(THUMBS_DIR, exist_ok=True)
 
 # ── Printer config helpers ──────────────────────────────────────
 
@@ -53,7 +55,11 @@ def read_printers():
 
 def write_printers(data):
     with open(PRINTERS_FILE, "w") as f:
-        json.dump(data, f, indent=2)
+        fcntl.flock(f, fcntl.LOCK_EX)
+        try:
+            json.dump(data, f, indent=2)
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
 
 def sanitise_cups_name(name):
     s = re.sub(r'[^a-zA-Z0-9_-]', '_', name)
@@ -212,12 +218,23 @@ def get_uploaded_images():
     return images
 
 def get_image_thumbnail_b64(printer):
-    """Return a small base64 data URI for the printer's test image."""
+    """Return a small base64 data URI for the printer's test image, with disk caching."""
     path = get_test_image_path(printer)
     try:
+        # Cache key based on image path and mtime
+        src_mtime = os.path.getmtime(path)
+        cache_key = re.sub(r'[^a-zA-Z0-9_-]', '_', os.path.basename(path))
+        cache_path = os.path.join(THUMBS_DIR, f"{cache_key}.png")
+
+        # Return cached thumbnail if source hasn't changed
+        if os.path.exists(cache_path) and os.path.getmtime(cache_path) >= src_mtime:
+            with open(cache_path, "rb") as f:
+                return f"data:image/png;base64,{base64.b64encode(f.read()).decode()}"
+
         from PIL import Image as PILImage
         img = PILImage.open(path)
         img.thumbnail((120, 80))
+        img.save(cache_path, format="PNG")
         buf = io.BytesIO()
         img.save(buf, format="PNG")
         return f"data:image/png;base64,{base64.b64encode(buf.getvalue()).decode()}"
@@ -234,7 +251,7 @@ def update_cron():
             schedule = p.get("schedule", data["global"]["schedule"])
             lines.append(f'{schedule} . /etc/environment; /app/auto-print.sh --printer-id={p["id"]} >> /data/logs/cron.log 2>&1')
     cron_content = "\n".join(lines) + "\n" if lines else ""
-    subprocess.run(["bash", "-c", f'echo "{cron_content}" | crontab -'],
+    subprocess.run(["crontab", "-"], input=cron_content.encode(),
                    capture_output=True, timeout=5)
 
 # ── HTTP Handler ────────────────────────────────────────────────
@@ -293,7 +310,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
         else:
             self.send_error(404)
 
+    def _check_origin(self):
+        """Basic CSRF protection: reject POST from foreign origins."""
+        origin = self.headers.get("Origin", "")
+        if origin:
+            from urllib.parse import urlparse
+            parsed = urlparse(origin)
+            host_header = self.headers.get("Host", "")
+            # Allow if origin host matches the Host header (same-origin)
+            if parsed.netloc and host_header and parsed.netloc != host_header:
+                self._json_response({"ok": False, "message": "Cross-origin request blocked"}, 403)
+                return False
+        return True
+
     def do_POST(self):
+        if not self._check_origin():
+            return
         if self.path == "/api/printers/add":
             self._handle_add_printer()
         elif self.path == "/api/printers/remove":
@@ -458,7 +490,31 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
         data = read_printers()
         if "webhook_url" in body:
-            data.setdefault("global", {})["webhook_url"] = body["webhook_url"].strip()
+            url = body["webhook_url"].strip()
+            if url:
+                from urllib.parse import urlparse
+                import ipaddress
+                parsed = urlparse(url)
+                if parsed.scheme not in ("http", "https"):
+                    self._json_response({"ok": False, "message": "Webhook URL must be http or https"}, 400)
+                    return
+                # Block localhost and link-local/metadata IPs (SSRF prevention)
+                hostname = parsed.hostname or ""
+                if hostname in ("localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]"):
+                    self._json_response({"ok": False, "message": "Webhook URL cannot point to localhost"}, 400)
+                    return
+                try:
+                    addr = ipaddress.ip_address(hostname)
+                    if addr.is_loopback or addr.is_link_local:
+                        self._json_response({"ok": False, "message": "Webhook URL cannot point to loopback/link-local"}, 400)
+                        return
+                    # Block AWS metadata endpoint
+                    if str(addr) == "169.254.169.254":
+                        self._json_response({"ok": False, "message": "Webhook URL cannot point to metadata endpoint"}, 400)
+                        return
+                except ValueError:
+                    pass  # hostname is not an IP — that's fine
+            data.setdefault("global", {})["webhook_url"] = url
             # Also set env var for auto-print.sh and update /etc/environment for cron
             url = body["webhook_url"].strip()
             os.environ["WEBHOOK_URL"] = url
@@ -475,28 +531,64 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     # ── Image upload ─────────────────────────────────────────
 
+    def _parse_multipart(self):
+        """Parse multipart/form-data without deprecated cgi module."""
+        content_type = self.headers.get("Content-Type", "")
+        # Extract boundary from Content-Type header
+        boundary = None
+        for part in content_type.split(";"):
+            part = part.strip()
+            if part.startswith("boundary="):
+                boundary = part[len("boundary="):].strip('"')
+                break
+        if not boundary:
+            return None, None
+        length = int(self.headers.get("Content-Length", 0))
+        if length <= 0 or length > MAX_UPLOAD_BYTES + 4096:
+            return None, None
+        body = self.rfile.read(length)
+        boundary_bytes = ("--" + boundary).encode()
+        parts = body.split(boundary_bytes)
+        for part in parts:
+            if b"Content-Disposition" not in part:
+                continue
+            # Split headers from body
+            header_end = part.find(b"\r\n\r\n")
+            if header_end < 0:
+                continue
+            headers_raw = part[:header_end].decode("utf-8", errors="replace")
+            file_data = part[header_end + 4:]
+            # Remove trailing \r\n-- if present
+            if file_data.endswith(b"\r\n"):
+                file_data = file_data[:-2]
+            if file_data.endswith(b"--\r\n"):
+                file_data = file_data[:-4]
+            if file_data.endswith(b"--"):
+                file_data = file_data[:-2]
+            # Parse filename from Content-Disposition
+            fn_match = re.search(r'filename="([^"]+)"', headers_raw)
+            if fn_match and b'name="file"' in part[:header_end]:
+                return fn_match.group(1), file_data
+        return None, None
+
     def _handle_upload_image(self):
         content_type = self.headers.get("Content-Type", "")
         if "multipart/form-data" not in content_type:
             self._json_response({"ok": False, "message": "Must be multipart/form-data"}, 400)
             return
         try:
-            form = cgi.FieldStorage(
-                fp=self.rfile, headers=self.headers,
-                environ={"REQUEST_METHOD": "POST", "CONTENT_TYPE": content_type})
+            filename, data = self._parse_multipart()
         except Exception as e:
             self._json_response({"ok": False, "message": str(e)}, 400)
             return
-        file_item = form["file"] if "file" in form else None
-        if not file_item or not file_item.filename:
+        if not filename or not data:
             self._json_response({"ok": False, "message": "No file uploaded"}, 400)
             return
-        filename = os.path.basename(file_item.filename)
+        filename = os.path.basename(filename)
         ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
         if ext not in ("png", "jpg", "jpeg", "bmp", "tiff"):
             self._json_response({"ok": False, "message": "Invalid file type."}, 400)
             return
-        data = file_item.file.read(MAX_UPLOAD_BYTES + 1)
         if len(data) > MAX_UPLOAD_BYTES:
             self._json_response({"ok": False, "message": "File too large. Max 5 MB."}, 400)
             return
@@ -860,6 +952,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
 <script>
 const historyData = {history_json};
 
+function esc(s) {{ if (!s) return ''; const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }}
+
 function api(path, method, body) {{
   const opts = {{ method }};
   if (body) {{ opts.headers = {{'Content-Type':'application/json'}}; opts.body = JSON.stringify(body); }}
@@ -949,7 +1043,7 @@ function probeAllPrinters() {{
       // Model name
       const modelEl = document.getElementById('model-' + id);
       if (modelEl && d.model) {{
-        modelEl.innerHTML = '<span style="color:#94a3b8;font-size:0.78rem;">' + d.model + '</span>';
+        modelEl.innerHTML = '<span style="color:#94a3b8;font-size:0.78rem;">' + esc(d.model) + '</span>';
       }}
       // Ink levels
       const inkEl = document.getElementById('ink-' + id);
@@ -961,7 +1055,7 @@ function probeAllPrinters() {{
           // Convert IPP color format (#RRGGBB) or use default
           const barColor = color.startsWith('#') ? color : '#94a3b8';
           html += `<div class="ink-bar">
-            <span class="ink-label">${{ink.name}}</span>
+            <span class="ink-label">${{esc(ink.name)}}</span>
             <div class="ink-bar-bg"><div class="ink-bar-fill" style="width:${{pct}}%;background:${{barColor}};"></div></div>
             <span class="ink-label">${{pct >= 0 ? pct + '%' : '?'}}</span>
           </div>`;
@@ -976,7 +1070,7 @@ function probeAllPrinters() {{
 function buildCron(days, hour) {{
   if (days == 1) return `0 ${{hour}} * * *`;
   if (days == 7) return `0 ${{hour}} * * 1`;
-  if (days == 14) return `0 ${{hour}} 1,15 * *`;
+  if (days == 14) return `0 ${{hour}} */14 * *`;
   return `0 ${{hour}} */${{days}} * *`;
 }}
 function parseCron(cron) {{
@@ -985,7 +1079,7 @@ function parseCron(cron) {{
   const hour = parseInt(parts[1]) || 10;
   const dom = parts[2], dow = parts[4];
   if (dow === '1' && dom === '*') return {{ days: 7, hour }};
-  if (dom === '1,15') return {{ days: 14, hour }};
+  if (dom === '1,15' || dom === '*/14') return {{ days: 14, hour }};
   if (dom.startsWith('*/')) return {{ days: parseInt(dom.slice(2)) || 3, hour }};
   if (dom === '*' && dow === '*') return {{ days: 1, hour }};
   return {{ days: 3, hour }};
@@ -1047,8 +1141,8 @@ function discoverPrinters() {{
     let h = '<div class="discover-list">';
     d.printers.forEach(p => {{
       h += `<div class="discover-item">
-        <div><strong>${{p.name}}</strong> <span class="meta">${{p.ip}}</span></div>
-        <button class="btn btn-primary btn-sm" onclick="quickAdd('${{p.ip}}','${{p.name.replace(/'/g, "\\\\'")}}')">Add</button>
+        <div><strong>${{esc(p.name)}}</strong> <span class="meta">${{esc(p.ip)}}</span></div>
+        <button class="btn btn-primary btn-sm" onclick="quickAdd('${{p.ip.replace(/'/g, "\\\\'")}}',' ${{p.name.replace(/'/g, "\\\\'")}}')">Add</button>
       </div>`;
     }});
     container.innerHTML = h + '</div>';
@@ -1160,11 +1254,13 @@ setInterval(probeAllPrinters, 60000);  // Re-check connectivity every 60s
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", len(body))
+        self.send_header("Content-Security-Policy",
+                         "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:")
         self.end_headers()
         self.wfile.write(body)
 
 
 if __name__ == "__main__":
-    server = http.server.HTTPServer(("0.0.0.0", PORT), Handler)
+    server = http.server.ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     print(f"Web UI running on http://0.0.0.0:{PORT}")
     server.serve_forever()

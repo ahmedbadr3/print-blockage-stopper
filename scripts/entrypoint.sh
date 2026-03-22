@@ -69,17 +69,27 @@ fi
 # ── Start CUPS ──────────────────────────────────────────────────
 log "Starting CUPS daemon..."
 cupsd
-sleep 3
+# Wait for CUPS to be ready (up to 15 seconds)
+for i in $(seq 1 15); do
+    if lpstat -r &>/dev/null; then
+        log "CUPS ready after ${i}s"
+        break
+    fi
+    sleep 1
+    if [ "$i" -eq 15 ]; then
+        log "WARNING: CUPS not responding after 15s, continuing anyway"
+    fi
+done
 
 # ── Legacy: auto-add PRINTER_IP if set and not already added ────
 if [ -n "$PRINTER_IP" ]; then
     # Validate IP format
     if echo "$PRINTER_IP" | grep -qE '^[a-zA-Z0-9][a-zA-Z0-9.\-]{0,253}[a-zA-Z0-9]$'; then
         # Check if this IP is already in printers.json
-        ALREADY_EXISTS=$(python3 -c "
-import json
-data = json.load(open('$PRINTERS_FILE'))
-print(any(p['ip'] == '$PRINTER_IP' for p in data.get('printers', [])))
+        ALREADY_EXISTS=$(PRINTERS_FILE="$PRINTERS_FILE" CHECK_IP="$PRINTER_IP" python3 -c "
+import json, os
+data = json.load(open(os.environ['PRINTERS_FILE']))
+print(any(p['ip'] == os.environ['CHECK_IP'] for p in data.get('printers', [])))
 " 2>/dev/null) || ALREADY_EXISTS="False"
 
         if [ "$ALREADY_EXISTS" = "False" ]; then
@@ -105,23 +115,33 @@ print(any(p['ip'] == '$PRINTER_IP' for p in data.get('printers', [])))
             cupsenable "$CUPS_NAME" 2>/dev/null || true
 
             # Add to printers.json
+            PBS_PRINTERS_FILE="$PRINTERS_FILE" \
+            PBS_PRINTER_ID="$PRINTER_ID" \
+            PBS_PRINTER_IP="$PRINTER_IP" \
+            PBS_CONNECTION="$CONNECTION" \
+            PBS_PRINTER_PORT="$PRINTER_PORT" \
+            PBS_PAPER_SIZE="$PAPER_SIZE" \
+            PBS_SCHEDULE="$SCHEDULE" \
+            PBS_SKIP_HOURS="$SKIP_HOURS" \
+            PBS_CUPS_NAME="$CUPS_NAME" \
             python3 -c "
-import json
-data = json.load(open('$PRINTERS_FILE'))
+import json, os
+e = os.environ
+data = json.load(open(e['PBS_PRINTERS_FILE']))
 data['printers'].append({
-    'id': '$PRINTER_ID',
-    'name': 'Printer at $PRINTER_IP',
-    'ip': '$PRINTER_IP',
-    'connection': '$CONNECTION',
-    'port': $PRINTER_PORT,
-    'paper_size': '$PAPER_SIZE',
-    'schedule': '$SCHEDULE',
-    'skip_hours': $SKIP_HOURS,
+    'id': e['PBS_PRINTER_ID'],
+    'name': 'Printer at ' + e['PBS_PRINTER_IP'],
+    'ip': e['PBS_PRINTER_IP'],
+    'connection': e['PBS_CONNECTION'],
+    'port': int(e['PBS_PRINTER_PORT']),
+    'paper_size': e['PBS_PAPER_SIZE'],
+    'schedule': e['PBS_SCHEDULE'],
+    'skip_hours': int(e['PBS_SKIP_HOURS']),
     'paused': False,
     'test_image': 'preset-11',
-    'cups_name': '$CUPS_NAME'
+    'cups_name': e['PBS_CUPS_NAME']
 })
-json.dump(data, open('$PRINTERS_FILE', 'w'), indent=2)
+json.dump(data, open(e['PBS_PRINTERS_FILE'], 'w'), indent=2)
 " 2>/dev/null
 
             log "Printer added: $PRINTER_IP ($CUPS_NAME)"
@@ -137,13 +157,16 @@ fi
 if [ ! -d /data/cups ]; then
     cp -a /etc/cups /data/cups
 fi
+# Mount persisted CUPS config back so runtime changes survive restarts
+rm -rf /etc/cups
+ln -sf /data/cups /etc/cups
 ln -sf /data/logs /var/log/cups 2>/dev/null || true
 
 # ── Re-register all printers in CUPS (from persisted config) ────
 log "Registering printers from config..."
-python3 -c "
-import json, subprocess
-data = json.load(open('$PRINTERS_FILE'))
+PBS_PRINTERS_FILE="$PRINTERS_FILE" python3 -c "
+import json, subprocess, os
+data = json.load(open(os.environ['PBS_PRINTERS_FILE']))
 for p in data.get('printers', []):
     cups_name = p['cups_name']
     conn = p.get('connection', 'ipp')
@@ -164,18 +187,18 @@ for p in data.get('printers', []):
 
 # ── Install cron schedules (one line per non-paused printer) ─────
 log "Installing cron schedules..."
-python3 -c "
-import json
-data = json.load(open('$PRINTERS_FILE'))
+PBS_PRINTERS_FILE="$PRINTERS_FILE" PBS_DEFAULT_SCHEDULE="$SCHEDULE" python3 -c "
+import json, subprocess, os
+data = json.load(open(os.environ['PBS_PRINTERS_FILE']))
+default_sched = os.environ.get('PBS_DEFAULT_SCHEDULE', '0 10 */3 * *')
 lines = []
 for p in data.get('printers', []):
     if not p.get('paused', False):
-        sched = p.get('schedule', '$SCHEDULE')
+        sched = p.get('schedule', default_sched)
         pid = p['id']
         lines.append(f'{sched} . /etc/environment; /app/auto-print.sh --printer-id={pid} >> /data/logs/cron.log 2>&1')
 cron = '\n'.join(lines) + '\n' if lines else ''
-import subprocess
-subprocess.run(['bash', '-c', f'echo \"{cron}\" | crontab -'], capture_output=True)
+subprocess.run(['crontab', '-'], input=cron.encode(), capture_output=True)
 num = len(lines)
 print(f'  {num} cron job(s) installed')
 " 2>/dev/null || true
@@ -185,9 +208,9 @@ log "Starting cron daemon..."
 cron
 
 # ── Export WEBHOOK_URL from config (for cron jobs) ────────────────
-WEBHOOK_URL_FROM_CONFIG=$(python3 -c "
-import json
-data = json.load(open('$PRINTERS_FILE'))
+WEBHOOK_URL_FROM_CONFIG=$(PBS_PRINTERS_FILE="$PRINTERS_FILE" python3 -c "
+import json, os
+data = json.load(open(os.environ['PBS_PRINTERS_FILE']))
 print(data.get('global', {}).get('webhook_url', ''))
 " 2>/dev/null) || WEBHOOK_URL_FROM_CONFIG=""
 
@@ -202,7 +225,7 @@ log "Starting web UI on port 8631..."
 python3 /app/webui.py &
 
 # ── Count printers ──────────────────────────────────────────────
-NUM_PRINTERS=$(python3 -c "import json; print(len(json.load(open('$PRINTERS_FILE')).get('printers',[])))" 2>/dev/null) || NUM_PRINTERS=0
+NUM_PRINTERS=$(PBS_PRINTERS_FILE="$PRINTERS_FILE" python3 -c "import json, os; print(len(json.load(open(os.environ['PBS_PRINTERS_FILE'])).get('printers',[])))" 2>/dev/null) || NUM_PRINTERS=0
 
 log "============================================================"
 log " print-blockage-stopper v1.4 is running"
