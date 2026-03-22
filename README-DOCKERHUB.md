@@ -4,15 +4,31 @@ Automated maintenance prints for **any network printer** (IPP Everywhere compati
 
 Pigment printers—especially wide-format models—clog when they sit idle. This container sends a tiny test print on a schedule to keep all ink channels flowing — saving you from expensive cleaning cycles and wasted ink.
 
-## What it does
+## Features
 
-- Sends a minimal-ink test image (~4×2 inches on A4) that exercises a wide colour gamut plus greyscale—suitable for any printer
-- Runs on a configurable cron schedule (default: every 3 days)
-- Includes a CUPS web UI and dashboard for monitoring and manual trigger
-- Logs every print job with timestamps and status
-- Uses IPP Everywhere (driverless) printing—works with any modern network printer
+- **Multi-printer support** — manage multiple printers from a single container
+- **Auto-discovery** — find printers on your network via mDNS/IPP
+- **Smart scheduling** — skip the maintenance print if the printer was recently used
+- **Preset test images** — optimised for 4, 6, 8, 11, and 12-colour printers
+- **Custom image upload** — use your own test pattern (up to 5 MB)
+- **Web dashboard** — per-printer status, schedule controls, print history chart
+- **Pause/resume** — toggle schedules per-printer from the dashboard
+- **Unraid notifications** — get alerts on print failures
 
 ## Quick start
+
+```bash
+docker run -d \
+  --name print-blockage-stopper \
+  -p 8631:8631 \
+  -p 631:631 \
+  -v /path/to/data:/data \
+  abadrdh/print-blockage-stopper
+```
+
+Then open **http://YOUR_HOST:8631** and add your printers from the dashboard.
+
+### With a printer pre-configured
 
 ```bash
 docker run -d \
@@ -20,6 +36,7 @@ docker run -d \
   -e PRINTER_IP=192.168.1.50 \
   -e SCHEDULE="0 10 */3 * *" \
   -e PAPER_SIZE=A4 \
+  -p 8631:8631 \
   -p 631:631 \
   -v /mnt/user/appdata/print-blockage-stopper:/data \
   abadrdh/print-blockage-stopper
@@ -27,17 +44,20 @@ docker run -d \
 
 ### Unraid users
 
-Search for **print-blockage-stopper** in Community Applications and click Install. Fill in your printer's IP address and you're done.
+Search for **print-blockage-stopper** in Community Applications and click Install.
 
 ## Configuration
 
+All settings are optional — printers can be added entirely from the dashboard.
+
 | Variable | Default | Description |
 |---|---|---|
-| `PRINTER_IP` | *(required)* | IP address of your printer |
-| `SCHEDULE` | `0 10 */3 * *` | Cron expression — default is every 3 days at 10 AM |
-| `PAPER_SIZE` | `A4` | Paper size loaded in printer (A4, Letter, A3, etc.) |
+| `PRINTER_IP` | *(empty)* | Auto-add this printer on first boot |
+| `SCHEDULE` | `0 10 */3 * *` | Default cron schedule for new printers |
+| `PAPER_SIZE` | `A4` | Default paper size (A4, Letter, A3, etc.) |
+| `SKIP_HOURS` | `72` | Skip print if printer was used within this many hours |
 | `CONNECTION` | `ipp` | Connection type: `ipp` or `socket` |
-| `PRINTER_PORT` | `9100` | Socket port (only used with `CONNECTION=socket`) |
+| `PRINTER_PORT` | `9100` | Socket port (only with `CONNECTION=socket`) |
 
 ### Schedule examples
 
@@ -52,26 +72,25 @@ Search for **print-blockage-stopper** in Community Applications and click Instal
 
 | Path | Purpose |
 |---|---|
-| `/data` | Persistent logs and CUPS config |
+| `/data` | Persistent storage: printer config, logs, uploads, CUPS state |
 
 ## Ports
 
 | Port | Purpose |
 |---|---|
-| `631` | CUPS web UI |
+| `8631` | Dashboard (status, controls, history) |
+| `631` | CUPS web UI (advanced) |
 
-## Logs
+## Dashboard
 
-Print history is logged at `/data/logs/auto-print.log` inside the container (or wherever you map `/data` on the host).
-
-## How the test image works
-
-The test image is designed to use as little ink as possible while still firing every nozzle:
-
-- Thin lines per ink channel (not filled boxes)
-- Tiny colour patches (~2.4mm squares)
-- Narrow greyscale step wedge
-- Single-pixel dotted rows
+The dashboard at port 8631 lets you:
+- Add and remove printers (manual IP or auto-discover)
+- View per-printer status and print history
+- Pause/resume schedules per printer
+- Adjust skip-hours per printer
+- Select preset test images (4/6/8/11/12-colour)
+- Upload custom test images
+- Trigger immediate prints
 
 ## Requirements
 

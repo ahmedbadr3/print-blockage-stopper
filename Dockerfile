@@ -2,15 +2,10 @@
 # print-blockage-stopper
 #
 # All-in-one container that keeps any IPP-capable network printer's print head
-# healthy by sending a small test print on a schedule. Works with any
-# networked printer: Canon imagePROGRAF, Epson SureColor, HP DesignJet, etc.
+# healthy by sending a small test print on a schedule. Supports multiple
+# printers, mDNS discovery, custom test images, and a web dashboard.
 #
-# Components baked in:
-#   - CUPS print server
-#   - GutenPrint drivers (large-format printer support)
-#   - Test image exercising wide colour gamut + greyscale
-#   - Cron-based scheduler
-#   - Print script with logging
+# v1.3: Multi-printer, auto-discovery, preset + custom test images
 ###############################################################################
 
 FROM debian:bookworm-slim
@@ -24,17 +19,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         cups \
         cups-client \
         cups-filters \
+        cups-ipp-utils \
         printer-driver-gutenprint \
+        avahi-utils \
         cron \
         curl \
         ca-certificates \
         python3 \
+        python3-pip \
+        fonts-dejavu-core \
+    && pip3 install --break-system-packages --no-cache-dir Pillow \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 # ── CUPS configuration ───────────────────────────────────────
-# Status pages: readable from LAN (monitoring/job queue)
-# Admin pages: localhost only (no remote reconfiguration)
 COPY <<'CUPSD_CONF' /etc/cups/cupsd.conf
 LogLevel warn
 MaxLogSize 1m
@@ -100,26 +98,31 @@ WebInterface Yes
 CUPSD_CONF
 
 # ── Create app directories ───────────────────────────────────
-RUN mkdir -p /app /data/logs
+RUN mkdir -p /app /app/presets /data/logs /data/uploads
 
 # ── Copy application files ───────────────────────────────────
 COPY test-image/pro1100-test-print.png /app/test-print.png
+COPY scripts/generate-presets.py /app/generate-presets.py
 COPY scripts/entrypoint.sh /app/entrypoint.sh
 COPY scripts/auto-print.sh /app/auto-print.sh
 COPY scripts/webui.py /app/webui.py
 
 RUN chmod +x /app/entrypoint.sh /app/auto-print.sh
 
+# ── Generate preset test images at build time ─────────────────
+RUN python3 /app/generate-presets.py /app/presets
+
 # ── Volumes ──────────────────────────────────────────────────
-# /data persists logs and CUPS state across restarts
+# /data persists logs, printer config, uploads, and CUPS state
 VOLUME ["/data"]
 
 # ── Environment variables (user-configurable) ────────────────
-# PRINTER_IP:    IP address of the printer on the network
+# PRINTER_IP:    (Optional) Auto-add this printer on first boot
 # PRINTER_PORT:  Port for socket connection (default 9100)
-# SCHEDULE:      Cron expression for print frequency
-# PAPER_SIZE:    Media size (A4, Letter, etc.)
-# CONNECTION:    ipp or socket
+# SCHEDULE:      Default cron expression for new printers
+# PAPER_SIZE:    Default media size (A4, Letter, etc.)
+# CONNECTION:    Default connection type: ipp or socket
+# SKIP_HOURS:    Default skip-if-recently-printed window (hours)
 ENV PRINTER_IP="" \
     PRINTER_PORT="9100" \
     SCHEDULE="0 10 */3 * *" \
@@ -133,6 +136,6 @@ EXPOSE 8631
 
 # ── Health check ─────────────────────────────────────────────
 HEALTHCHECK --interval=60s --timeout=10s --retries=3 \
-    CMD curl -sf http://localhost:631/ || exit 1
+    CMD curl -sf http://localhost:8631/ || exit 1
 
 ENTRYPOINT ["/app/entrypoint.sh"]

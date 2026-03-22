@@ -15,16 +15,16 @@
   <Overview>
     Automated maintenance prints for any network printer (especially pigment printers like Canon imagePROGRAF, Epson SureColor, HP DesignJet, etc.).
 
-    Sends a small test image on a configurable schedule (default: every 3 days) to keep all ink channels flowing and prevent costly pigment clogs and cleaning cycles. Works with any IPP-capable printer.
+    Sends a small test image on a configurable schedule (default: every 3 days) to keep all ink channels flowing and prevent costly pigment clogs and cleaning cycles.
 
-    Includes a built-in CUPS server, GutenPrint drivers, test image, and cron scheduler — just point it at your printer's IP and go.
+    Features: multi-printer support, network printer discovery, per-printer schedules, smart skip (won't print if the printer was recently used), preset test images for 4/6/8/11/12-colour printers, custom image upload, and a built-in dashboard.
   </Overview>
   <Category>Productivity: Tools:</Category>
   <WebUI>http://[IP]:[PORT:8631]</WebUI>
   <TemplateURL>https://raw.githubusercontent.com/ahmedbadr3/unraid-templates/main/print-blockage-stopper.xml</TemplateURL>
   <Icon>https://raw.githubusercontent.com/ahmedbadr3/print-blockage-stopper/main/icon.png</Icon>
   <Description>
-    Keeps any network printer's print head healthy by automatically sending a small test print on a schedule. Prevents pigment ink clogs without wasting ink on full cleaning cycles. Works with Canon imagePROGRAF, Epson SureColor, HP DesignJet, and other IPP Everywhere compatible printers.
+    Keeps any network printer's print head healthy by automatically sending a small test print on a schedule. Prevents pigment ink clogs without wasting ink on full cleaning cycles. Supports multiple printers, auto-discovery, custom test images, and smart scheduling. Works with Canon imagePROGRAF, Epson SureColor, HP DesignJet, and other IPP Everywhere compatible printers.
   </Description>
   <DateInstalled></DateInstalled>
   <DonateText>Buy me a coffee</DonateText>
@@ -32,12 +32,17 @@
   <Requires>Any network printer with IPP Everywhere support (usually any modern networked printer). Especially useful for pigment printers.</Requires>
   <Beta>false</Beta>
   <Changes>
+    ### 1.3.0
+    - Multi-printer support (add/remove from dashboard)
+    - Network printer auto-discovery (mDNS/IPP)
+    - Per-printer status, schedule, and skip-hours
+    - Preset test images for 4/6/8/11/12-colour printers
+    - Custom test image upload (max 5 MB)
+    - Smart skip: won't print if printer was recently used
+    - Dashboard schedule pause/resume toggle
+    - 30-day print history chart
     ### 1.0.0
     - Initial release
-    - All 11 ink channels exercised with minimal-ink test image
-    - Built-in CUPS + GutenPrint drivers
-    - Configurable cron schedule
-    - CUPS web UI for monitoring
   </Changes>
 
   <!-- ── Ports ────────────────────────────────────────────── -->
@@ -46,7 +51,7 @@
     Target="8631"
     Default="8631"
     Mode="tcp"
-    Description="Web dashboard with status, logs, and Print Now button."
+    Description="Web dashboard for managing printers, schedules, and test images."
     Type="Port"
     Display="always"
     Required="true"
@@ -68,37 +73,47 @@
     Name="Printer IP Address"
     Target="PRINTER_IP"
     Default=""
-    Description="IP address of your printer on the local network. Find it in your router's DHCP list or on the printer under Settings → LAN Settings."
+    Description="(Optional) IP address of a printer to auto-add on first boot. You can also add printers from the dashboard after starting the container."
     Type="Variable"
     Display="always"
-    Required="true"
+    Required="false"
     Mask="false"></Config>
 
   <Config
-    Name="Print Schedule"
+    Name="Default Print Schedule"
     Target="SCHEDULE"
     Default="0 10 */3 * *"
-    Description="Cron expression for how often to print. Default: every 3 days at 10 AM. Examples: '0 10 */4 * *' (every 4 days), '0 8 * * 1,4' (Mon+Thu at 8 AM)."
+    Description="Default cron expression for new printers. Can be customised per-printer in the dashboard. Default: every 3 days at 10 AM."
     Type="Variable"
     Display="always"
     Required="true"
     Mask="false">0 10 */3 * *</Config>
 
   <Config
-    Name="Paper Size"
+    Name="Default Paper Size"
     Target="PAPER_SIZE"
     Default="A4"
-    Description="Paper size loaded in the printer (e.g., A4, Letter, A3)."
+    Description="Default paper size for new printers (e.g., A4, Letter, A3). Can be changed per-printer."
     Type="Variable"
     Display="always"
     Required="true"
     Mask="false">A4</Config>
 
   <Config
+    Name="Default Skip Hours"
+    Target="SKIP_HOURS"
+    Default="72"
+    Description="Default hours to skip maintenance print if printer was recently used. Adjustable per-printer in the dashboard."
+    Type="Variable"
+    Display="always"
+    Required="false"
+    Mask="false">72</Config>
+
+  <Config
     Name="Connection Type"
     Target="CONNECTION"
     Default="ipp"
-    Description="How to connect to the printer: 'ipp' (recommended) or 'socket' (port 9100)."
+    Description="Default connection type for new printers: 'ipp' (recommended) or 'socket' (port 9100)."
     Type="Variable"
     Display="advanced"
     Required="false"
@@ -108,28 +123,18 @@
     Name="Printer Port"
     Target="PRINTER_PORT"
     Default="9100"
-    Description="Port for socket connection (only used when Connection Type is 'socket')."
+    Description="Default port for socket connections (only used when Connection Type is 'socket')."
     Type="Variable"
     Display="advanced"
     Required="false"
     Mask="false">9100</Config>
-
-  <Config
-    Name="Skip If Printed Within (hours)"
-    Target="SKIP_HOURS"
-    Default="72"
-    Description="Skip the scheduled maintenance print if the printer had a real print job within this many hours. Default: 72 (3 days). Adjustable from the dashboard."
-    Type="Variable"
-    Display="always"
-    Required="false"
-    Mask="false">72</Config>
 
   <!-- ── Volumes ──────────────────────────────────────────── -->
   <Config
     Name="Data / Logs"
     Target="/data"
     Default="/mnt/user/appdata/print-blockage-stopper"
-    Description="Persistent storage for logs and CUPS configuration."
+    Description="Persistent storage for printer config, logs, uploads, and CUPS state."
     Type="Path"
     Display="always"
     Required="true"
