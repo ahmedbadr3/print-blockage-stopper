@@ -573,10 +573,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
           <button class="btn-icon" onclick="removePrinter('{p["id"]}')" title="Remove printer">&times;</button>
         </div>
         <div class="meta" id="model-{p["id"]}"></div>
-        <div class="meta">
-          <span>Status: <strong style="color:{st_colour}">{st_label}</strong></span>
-          <span>Last: {html_mod.escape(st["timestamp"])}</span>
-          <span>{html_mod.escape(st["message"])}</span>
+        <div class="meta" id="status-row-{p["id"]}">
+          <span>Status: <strong id="status-label-{p["id"]}" style="color:{st_colour}">{st_label}</strong></span>
+          <span>Last: <span id="status-time-{p["id"]}">{html_mod.escape(st["timestamp"])}</span></span>
+          <span id="status-msg-{p["id"]}">{html_mod.escape(st["message"])}</span>
         </div>
         <div class="ink-bar-container" id="ink-{p["id"]}"></div>
         <div class="printer-controls">
@@ -875,6 +875,8 @@ function printNow(id) {{
   api('/api/print-now/' + id, 'POST').then(() => {{
     setMsg('msg-' + id, 'Print triggered.', 5000);
     setTimeout(refreshLogs, 3000);
+    setTimeout(refreshAllStatus, 5000);
+    setTimeout(refreshAllStatus, 15000);
   }});
 }}
 function toggleSchedule(id) {{
@@ -1123,11 +1125,33 @@ function refreshLogs() {{
   fetch('/api/logs').then(r => r.json()).then(d => {{ document.getElementById('logs').textContent = d.logs; }});
 }}
 
+// ── Status refresh ──────────────────────────────────────
+function refreshAllStatus() {{
+  document.querySelectorAll('.printer-card').forEach(card => {{
+    const id = card.dataset.id;
+    api('/api/status/' + id, 'GET').then(d => {{
+      const colours = {{ok: '#22c55e', error: '#ef4444'}};
+      const labels = {{ok: 'OK', error: 'FAILED'}};
+      const lbl = document.getElementById('status-label-' + id);
+      const time = document.getElementById('status-time-' + id);
+      const msg = document.getElementById('status-msg-' + id);
+      if (lbl) {{
+        lbl.textContent = labels[d.status] || 'No prints yet';
+        lbl.style.color = colours[d.status] || '#a3a3a3';
+      }}
+      if (time) time.textContent = d.timestamp || '\u2014';
+      if (msg) msg.textContent = d.message || '';
+    }}).catch(() => {{}});
+  }});
+}}
+
 // ── Init ────────────────────────────────────────────────
 renderChart();
 initSchedulePickers();
 probeAllPrinters();
+refreshAllStatus();
 setInterval(refreshLogs, 30000);
+setInterval(refreshAllStatus, 15000);  // Re-check print status every 15s
 setInterval(probeAllPrinters, 60000);  // Re-check connectivity every 60s
 </script>
 </body>
