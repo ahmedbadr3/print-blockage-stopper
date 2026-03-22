@@ -801,8 +801,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
   .empty-state {{ text-align: center; color: #64748b; padding: 30px 20px; font-size: 0.9rem; }}
 
   .chart-container {{ position: relative; height: 120px; margin-top: 8px; }}
-  .chart-bar-wrap {{ display: flex; align-items: flex-end; gap: 3px; height: 100px; padding: 0 2px; }}
-  .chart-bar {{ flex: 1; min-width: 4px; border-radius: 3px 3px 0 0; cursor: default; transition: opacity 0.15s; }}
+  .chart-bar-wrap {{ display: flex; align-items: flex-end; gap: 3px; height: 100px; padding: 0 2px; overflow: hidden; }}
+  .chart-bar {{ flex: 1; min-width: 2px; max-width: 24px; border-radius: 3px 3px 0 0; cursor: default; transition: opacity 0.15s; align-self: flex-end; }}
   .chart-bar:hover {{ opacity: 0.8; }}
   .chart-labels {{ display: flex; justify-content: space-between; font-size: 0.65rem; color: #475569;
                     margin-top: 4px; padding: 0 2px; }}
