@@ -10,7 +10,7 @@
   <Network>bridge</Network>
   <Privileged>false</Privileged>
   <ExtraParams>--cap-drop=ALL --cap-add=DAC_OVERRIDE --cap-add=CHOWN --cap-add=FOWNER --cap-add=SETUID --cap-add=SETGID --security-opt=no-new-privileges</ExtraParams>
-  <Support>https://github.com/ahmedbadr3/print-blockage-stopper/issues</Support>
+  <Support>https://forums.unraid.net/topic/197898-support-print-blockage-stopper-automated-print-head-maintenance/</Support>
   <Project>https://github.com/ahmedbadr3/print-blockage-stopper</Project>
   <Overview>
     Automated maintenance prints for any network printer (especially pigment printers like Canon imagePROGRAF, Epson SureColor, HP DesignJet, etc.).
