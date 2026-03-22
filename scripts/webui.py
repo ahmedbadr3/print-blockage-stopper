@@ -407,6 +407,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._handle_toggle_schedule(pid)
         elif self.path == "/api/upload-image":
             self._handle_upload_image()
+        elif self.path == "/api/delete-image":
+            self._handle_delete_image()
         elif self.path == "/api/webhook":
             self._handle_webhook_config()
         else:
@@ -657,6 +659,39 @@ class Handler(http.server.BaseHTTPRequestHandler):
             f.write(data)
         self._json_response({"ok": True, "id": f"custom-{safe_name}", "filename": safe_name})
 
+    # ── Image delete ─────────────────────────────────────────
+
+    def _handle_delete_image(self):
+        try:
+            body = self._read_json_body()
+        except json.JSONDecodeError:
+            self._json_response({"ok": False, "message": "Invalid JSON"}, 400)
+            return
+        image_id = body.get("id", "")
+        if not image_id.startswith("custom-"):
+            self._json_response({"ok": False, "message": "Can only delete custom images"}, 400)
+            return
+        filename = image_id.replace("custom-", "", 1)
+        # Sanitise — prevent path traversal
+        filename = os.path.basename(filename)
+        filepath = os.path.join(UPLOADS_DIR, filename)
+        if not os.path.exists(filepath):
+            self._json_response({"ok": False, "message": "Image not found"}, 404)
+            return
+        os.remove(filepath)
+        # Remove cached thumbnail if it exists
+        cache_key = re.sub(r'[^a-zA-Z0-9_-]', '_', filename)
+        cache_path = os.path.join(THUMBS_DIR, f"{cache_key}.png")
+        if os.path.exists(cache_path):
+            os.remove(cache_path)
+        # Reset any printers using this image back to default
+        data = read_printers()
+        for p in data["printers"]:
+            if p.get("test_image") == image_id:
+                p["test_image"] = "preset-11"
+        write_printers(data)
+        self._json_response({"ok": True, "message": f"Deleted {filename}"})
+
     # ── CSV export ───────────────────────────────────────────
 
     def _serve_history_csv(self):
@@ -879,6 +914,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
   .upload-area {{ display: flex; align-items: center; gap: 12px; margin-top: 10px; flex-wrap: wrap; }}
   .upload-area input[type=file] {{ font-size: 0.82rem; color: #94a3b8; max-width: 200px; }}
+  .uploaded-item {{ display: flex; align-items: center; justify-content: space-between;
+                     background: #0f172a; padding: 6px 12px; border-radius: 6px; margin-top: 6px; }}
 
   /* Webhook config */
   .webhook-row {{ display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }}
@@ -970,6 +1007,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
       <button class="btn btn-primary btn-sm" onclick="uploadImage()">Upload</button>
       <span class="btn-msg" id="uploadMsg"></span>
     </div>
+    <div id="uploadedList" style="margin-top:10px;">{"".join(f'<div class="uploaded-item" id="upl-{html_mod.escape(u["id"])}"><span class="meta">{html_mod.escape(u["label"])}</span><button class="btn-icon" onclick="deleteImage(&#39;{html_mod.escape(u["id"])}&#39;)" title="Delete">&times;</button></div>' for u in uploads) if uploads else ""}</div>
   </div>
 
   <!-- Webhook Notifications -->
@@ -1230,6 +1268,20 @@ function uploadImage() {{
     if (d.ok) {{ setMsg('uploadMsg', 'Uploaded!', 5000); setTimeout(() => location.reload(), 1500); }}
     else setMsg('uploadMsg', d.message || 'Failed', 5000);
   }}).catch(e => setMsg('uploadMsg', 'Error', 5000));
+}}
+
+function deleteImage(imageId) {{
+  if (!confirm('Delete this image? Printers using it will revert to the default.')) return;
+  api('/api/delete-image', 'POST', {{ id: imageId }}).then(d => {{
+    if (d.ok) {{
+      const el = document.getElementById('upl-' + imageId);
+      if (el) el.remove();
+      // Remove from all dropdowns
+      document.querySelectorAll(`option[value="${{imageId}}"]`).forEach(o => o.remove());
+    }} else {{
+      alert(d.message || 'Delete failed');
+    }}
+  }});
 }}
 
 function refreshThumb(id) {{
