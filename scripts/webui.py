@@ -1172,6 +1172,7 @@ function updateSchedule(id) {{
   const days = document.getElementById('freq-' + id).value;
   const hour = document.getElementById('hour-' + id).value;
   updatePrinter(id, {{ schedule: buildCron(days, hour) }});
+  setTimeout(() => refreshNextPrint(), 500);
 }}
 
 function addPrinter() {{
