@@ -107,6 +107,7 @@ COPY scripts/entrypoint.sh /app/entrypoint.sh
 COPY scripts/auto-print.sh /app/auto-print.sh
 COPY scripts/webui.py /app/webui.py
 COPY scripts/printer_probe.py /app/printer_probe.py
+COPY scripts/stamp_image.py /app/stamp_image.py
 
 RUN chmod +x /app/entrypoint.sh /app/auto-print.sh
 

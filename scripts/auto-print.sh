@@ -94,6 +94,7 @@ sys.exit(1)
 # Extract fields
 CUPS_NAME=$(echo "$PRINTER_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['cups_name'])")
 PRINTER_NAME=$(echo "$PRINTER_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('name','Unknown'))")
+PRINTER_IP=$(echo "$PRINTER_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('ip',''))")
 PAPER_SIZE=$(echo "$PRINTER_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('paper_size','A4'))")
 SKIP_HOURS=$(echo "$PRINTER_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('skip_hours',72))")
 IS_PAUSED=$(echo "$PRINTER_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('paused',False))")
@@ -115,7 +116,17 @@ resolve_image() {
     echo "${PRESETS_DIR}/preset-11.png"
 }
 
-IMAGE=$(resolve_image "$TEST_IMAGE_ID")
+IMAGE_ORIG=$(resolve_image "$TEST_IMAGE_ID")
+
+# Stamp printer info onto a temp copy of the image
+PRINTER_MODEL=$(echo "$PRINTER_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('model',''))" 2>/dev/null) || PRINTER_MODEL=""
+STAMPED_IMAGE="/tmp/stamped-${PRINTER_ID}.png"
+python3 /app/stamp_image.py "$IMAGE_ORIG" "$STAMPED_IMAGE" "$PRINTER_NAME" "$PRINTER_IP" "$PRINTER_MODEL" 2>/dev/null && {
+    IMAGE="$STAMPED_IMAGE"
+} || {
+    log "WARNING: Could not stamp image, using original"
+    IMAGE="$IMAGE_ORIG"
+}
 
 log "Printer: $PRINTER_NAME ($CUPS_NAME) | Image: $TEST_IMAGE_ID"
 

@@ -125,34 +125,40 @@ def draw_nozzle_check(draw, x, y, w, channels, font):
 
 
 def draw_colour_patches(draw, x, y, w, channels, font):
-    """Draw small colour patches — pure colour + lighter shade side by side.
-    Staggered layout: 2 channels per row to keep things compact."""
-    patch_h = 16
-    row_gap = 3
-    col_w = (w - 6) // 2  # two columns
-    patch_w = col_w - 50   # leave room for label
+    """Draw tiny colour patches — pure + light shade in a compact 3-column grid.
+    Each patch is just 6px tall to minimise ink."""
+    patch_h = 6
+    row_gap = 2
+    cols = 3
+    col_w = (w - (cols - 1) * 4) // cols
+    patch_w = col_w - 30  # room for short label
     section_y = y
 
-    for i in range(0, len(channels), 2):
-        for col in range(2):
+    abbrevs = {
+        "Cyan": "C", "Magenta": "M", "Yellow": "Y", "Black": "K",
+        "Light Cyan": "LC", "Light Magenta": "LM",
+        "Light Black": "LK", "Light Lt Black": "LLK",
+        "Red": "R", "Blue": "B", "Green": "G", "Matte Black": "MK",
+    }
+
+    for i in range(0, len(channels), cols):
+        for col in range(cols):
             idx = i + col
             if idx >= len(channels):
                 break
             ch_name = channels[idx]
             colour = CHANNELS[ch_name]
             light = lighten(colour)
-            cx = x + col * (col_w + 6)
+            cx = x + col * (col_w + 4)
 
-            # Label
-            label = ch_name if len(ch_name) <= 8 else ch_name.replace("Light ", "Lt ")
-            draw.text((cx, section_y + 2), label, fill=(100, 100, 100), font=font)
+            abbr = abbrevs.get(ch_name, ch_name[:2])
+            draw.text((cx, section_y), abbr, fill=(100, 100, 100), font=font)
 
-            # Pure patch
-            px = cx + 50
-            draw.rectangle([(px, section_y), (px + patch_w // 2 - 1, section_y + patch_h)],
+            px = cx + 30
+            half = patch_w // 2
+            draw.rectangle([(px, section_y), (px + half - 1, section_y + patch_h)],
                            fill=colour)
-            # Light shade patch
-            draw.rectangle([(px + patch_w // 2 + 1, section_y),
+            draw.rectangle([(px + half + 1, section_y),
                             (px + patch_w, section_y + patch_h)],
                            fill=light)
 
@@ -163,8 +169,8 @@ def draw_colour_patches(draw, x, y, w, channels, font):
 
 def draw_blend_strips(draw, x, y, w, channels):
     """Draw thin horizontal gradient strips blending adjacent channels.
-    Each strip is 6px tall — enough to fire both channels at varying ratios."""
-    strip_h = 6
+    Each strip is 2px tall — just enough to fire both channels at varying ratios."""
+    strip_h = 2
     strip_gap = 2
     section_y = y
 
@@ -207,10 +213,10 @@ def generate_preset(name, channel_names):
     # Calculate heights for each section
     n = len(channel_names)
     nozzle_h = n * (4 * 3 + 4)  # 4 lines * 3px spacing + 4px gap per channel
-    patch_rows = (n + 1) // 2
-    patch_h = patch_rows * (16 + 3)
+    patch_rows = (n + 2) // 3   # 3 columns now
+    patch_h = patch_rows * (6 + 2)
     blend_pairs = n  # n-1 adjacent + 1 wraparound (or n-1 if <=2)
-    blend_h = blend_pairs * (6 + 2)
+    blend_h = blend_pairs * (2 + 2)
 
     title_h = 28
     section_label_h = 16
