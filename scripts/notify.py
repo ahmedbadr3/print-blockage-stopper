@@ -24,10 +24,11 @@ from urllib.error import URLError
 DATA_FILE = "/data/printers.json"
 
 
-def load_config():
-    """Load global notification config from printers.json."""
+def load_config(config_path=None):
+    """Load global notification config from printers.json or a custom path."""
     try:
-        with open(DATA_FILE, "r") as f:
+        path = config_path or DATA_FILE
+        with open(path, "r") as f:
             data = json.load(f)
         return data.get("global", {})
     except Exception:
@@ -70,10 +71,10 @@ def send_webhook(config, payload):
         log(f"Webhook failed: {e}")
 
 
-def send_email(config, subject, body_text):
+def send_email(config, subject, body_text, force=False):
     """Send email notification via SMTP."""
     email_cfg = config.get("email", {})
-    if not email_cfg.get("enabled"):
+    if not force and not email_cfg.get("enabled"):
         return
     server = email_cfg.get("smtp_server", "").strip()
     port = int(email_cfg.get("smtp_port", 587))
@@ -107,10 +108,10 @@ def send_email(config, subject, body_text):
         log(f"Email failed: {e}")
 
 
-def send_homeassistant(config, title, message):
+def send_homeassistant(config, title, message, force=False):
     """Send Home Assistant persistent notification."""
     ha_cfg = config.get("homeassistant", {})
-    if not ha_cfg.get("enabled"):
+    if not force and not ha_cfg.get("enabled"):
         return
     ha_url = ha_cfg.get("ha_url", "").strip().rstrip("/")
     ha_token = ha_cfg.get("ha_token", "").strip()
@@ -161,9 +162,11 @@ def main():
     parser.add_argument("--message", default="")
     parser.add_argument("--channel", default="all", choices=["all", "webhook", "email", "homeassistant"],
                         help="Send to a specific channel only (for testing)")
+    parser.add_argument("--config", default=None,
+                        help="Path to a JSON config file (overrides /data/printers.json)")
     args = parser.parse_args()
 
-    config = load_config()
+    config = load_config(args.config)
     now = datetime.now(timezone.utc).isoformat()
 
     # Build payloads
@@ -193,14 +196,15 @@ def main():
         webhook_payload["event"] = "test"
         webhook_payload["message"] = "Test notification"
 
-    # Dispatch to channels
+    # Dispatch to channels (force=True for test events to bypass enabled check)
     channel = args.channel
+    force = args.event == "test"
     if channel in ("all", "webhook"):
         send_webhook(config, webhook_payload)
     if channel in ("all", "email"):
-        send_email(config, subject, body)
+        send_email(config, subject, body, force=force)
     if channel in ("all", "homeassistant"):
-        send_homeassistant(config, ha_title, ha_message)
+        send_homeassistant(config, ha_title, ha_message, force=force)
 
 
 if __name__ == "__main__":

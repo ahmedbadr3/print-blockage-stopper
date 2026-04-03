@@ -689,18 +689,57 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if channel not in ("webhook", "email", "homeassistant"):
             self._json_response({"ok": False, "message": "Invalid channel"}, 400)
             return
-        import subprocess
-        result = subprocess.run(
-            ["python3", "/app/notify.py", "--event", "test",
-             "--printer", "Test", "--printer-id", "test",
-             "--message", "Test notification", "--channel", channel],
-            capture_output=True, text=True, timeout=15
-        )
-        if result.returncode == 0:
-            self._json_response({"ok": True})
-        else:
-            err_msg = result.stderr.strip().split("\n")[-1] if result.stderr else "Unknown error"
-            self._json_response({"ok": False, "message": err_msg})
+
+        # Build config from form values sent in request (test without saving)
+        saved = read_printers().get("global", {})
+        config = dict(saved)
+        if "config" in body:
+            fc = body["config"]
+            if channel == "webhook":
+                config["webhook_url"] = fc.get("webhook_url", config.get("webhook_url", ""))
+            elif channel == "email":
+                ec = dict(config.get("email", {}))
+                for k in ("smtp_server", "smtp_port", "smtp_from", "smtp_to", "smtp_username", "smtp_tls"):
+                    if k in fc:
+                        ec[k] = fc[k]
+                # Use form password unless it's the sentinel
+                pw = fc.get("smtp_password", "")
+                if pw and pw != "***":
+                    ec["smtp_password"] = pw
+                ec["enabled"] = True
+                config["email"] = ec
+            elif channel == "homeassistant":
+                hc = dict(config.get("homeassistant", {}))
+                if "ha_url" in fc:
+                    hc["ha_url"] = fc["ha_url"]
+                token = fc.get("ha_token", "")
+                if token and token != "***":
+                    hc["ha_token"] = token
+                if "ha_verify_ssl" in fc:
+                    hc["ha_verify_ssl"] = fc["ha_verify_ssl"]
+                hc["enabled"] = True
+                config["homeassistant"] = hc
+
+        # Write temp config and run notify.py
+        import subprocess, tempfile
+        tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
+        json.dump({"printers": [], "global": config}, tmp)
+        tmp.close()
+        try:
+            result = subprocess.run(
+                ["python3", "/app/notify.py", "--event", "test",
+                 "--printer", "Test", "--printer-id", "test",
+                 "--message", "Test notification", "--channel", channel,
+                 "--config", tmp.name],
+                capture_output=True, text=True, timeout=15
+            )
+            if result.returncode == 0:
+                self._json_response({"ok": True})
+            else:
+                err_msg = result.stderr.strip().split("\n")[-1] if result.stderr else "Unknown error"
+                self._json_response({"ok": False, "message": err_msg})
+        finally:
+            os.unlink(tmp.name)
 
     # ── Image upload ─────────────────────────────────────────
 
@@ -1564,7 +1603,27 @@ function saveHAConfig() {{
 }}
 
 function testNotification(channel) {{
-  api('/api/notifications/test', 'POST', {{ channel: channel }}).then(d => {{
+  let cfg = {{}};
+  if (channel === 'webhook') {{
+    cfg.webhook_url = document.getElementById('webhookUrl').value.trim();
+  }} else if (channel === 'email') {{
+    cfg = {{
+      smtp_server: document.getElementById('smtpServer').value.trim(),
+      smtp_port: parseInt(document.getElementById('smtpPort').value) || 587,
+      smtp_from: document.getElementById('smtpFrom').value.trim(),
+      smtp_to: document.getElementById('smtpTo').value.trim(),
+      smtp_username: document.getElementById('smtpUser').value.trim(),
+      smtp_password: document.getElementById('smtpPass').value,
+      smtp_tls: document.getElementById('smtpTls').checked
+    }};
+  }} else if (channel === 'homeassistant') {{
+    cfg = {{
+      ha_url: document.getElementById('haUrl').value.trim(),
+      ha_token: document.getElementById('haToken').value,
+      ha_verify_ssl: document.getElementById('haVerifySsl').checked
+    }};
+  }}
+  api('/api/notifications/test', 'POST', {{ channel: channel, config: cfg }}).then(d => {{
     setMsg(channel + 'TestMsg', d.ok ? 'Test sent!' : (d.message || 'Failed'), 5000);
   }});
 }}
