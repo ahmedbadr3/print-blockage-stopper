@@ -424,6 +424,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._handle_delete_image()
         elif self.path == "/api/webhook":
             self._handle_webhook_config()
+        elif self.path == "/api/notifications":
+            self._handle_notifications_config()
+        elif self.path == "/api/notifications/test":
+            self._handle_notifications_test()
         else:
             self.send_error(404)
 
@@ -604,6 +608,100 @@ class Handler(http.server.BaseHTTPRequestHandler):
         write_printers(data)
         self._json_response({"ok": True})
 
+    # ── Notifications (email + HA) ───────────────────────────
+
+    def _validate_url_safe(self, url):
+        """Validate URL is not localhost/link-local/metadata. Returns error string or None."""
+        from urllib.parse import urlparse
+        import ipaddress as _ipaddress
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            return "URL must be http or https"
+        hostname = parsed.hostname or ""
+        if hostname in ("localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]"):
+            return "URL cannot point to localhost"
+        try:
+            addr = _ipaddress.ip_address(hostname)
+            if addr.is_loopback or addr.is_link_local:
+                return "URL cannot point to loopback/link-local"
+            if str(addr) == "169.254.169.254":
+                return "URL cannot point to metadata endpoint"
+        except ValueError:
+            pass
+        return None
+
+    def _handle_notifications_config(self):
+        try:
+            body = self._read_json_body()
+        except json.JSONDecodeError:
+            self._json_response({"ok": False, "message": "Invalid JSON"}, 400)
+            return
+
+        data = read_printers()
+        g = data.setdefault("global", {})
+
+        # Email config
+        if "email" in body:
+            ec = body["email"]
+            email_cfg = g.get("email", {})
+            email_cfg["enabled"] = bool(ec.get("enabled", False))
+            email_cfg["smtp_server"] = ec.get("smtp_server", "").strip()
+            email_cfg["smtp_port"] = max(1, min(65535, int(ec.get("smtp_port", 587))))
+            email_cfg["smtp_from"] = ec.get("smtp_from", "").strip()
+            email_cfg["smtp_to"] = ec.get("smtp_to", "").strip()
+            email_cfg["smtp_username"] = ec.get("smtp_username", "").strip()
+            # Preserve password if sentinel
+            pw = ec.get("smtp_password", "")
+            if pw != "***":
+                email_cfg["smtp_password"] = pw
+            email_cfg["smtp_tls"] = bool(ec.get("smtp_tls", True))
+            g["email"] = email_cfg
+
+        # Home Assistant config
+        if "homeassistant" in body:
+            hc = body["homeassistant"]
+            ha_cfg = g.get("homeassistant", {})
+            ha_url = hc.get("ha_url", "").strip().rstrip("/")
+            if ha_url:
+                err = self._validate_url_safe(ha_url)
+                if err:
+                    self._json_response({"ok": False, "message": f"Home Assistant URL: {err}"}, 400)
+                    return
+            ha_cfg["enabled"] = bool(hc.get("enabled", False))
+            ha_cfg["ha_url"] = ha_url
+            # Preserve token if sentinel
+            token = hc.get("ha_token", "")
+            if token != "***":
+                ha_cfg["ha_token"] = token
+            ha_cfg["ha_verify_ssl"] = bool(hc.get("ha_verify_ssl", True))
+            g["homeassistant"] = ha_cfg
+
+        write_printers(data)
+        self._json_response({"ok": True})
+
+    def _handle_notifications_test(self):
+        try:
+            body = self._read_json_body()
+        except json.JSONDecodeError:
+            self._json_response({"ok": False, "message": "Invalid JSON"}, 400)
+            return
+        channel = body.get("channel", "")
+        if channel not in ("webhook", "email", "homeassistant"):
+            self._json_response({"ok": False, "message": "Invalid channel"}, 400)
+            return
+        import subprocess
+        result = subprocess.run(
+            ["python3", "/app/notify.py", "--event", "test",
+             "--printer", "Test", "--printer-id", "test",
+             "--message", "Test notification", "--channel", channel],
+            capture_output=True, text=True, timeout=15
+        )
+        if result.returncode == 0:
+            self._json_response({"ok": True})
+        else:
+            err_msg = result.stderr.strip().split("\n")[-1] if result.stderr else "Unknown error"
+            self._json_response({"ok": False, "message": err_msg})
+
     # ── Image upload ─────────────────────────────────────────
 
     def _parse_multipart(self):
@@ -733,6 +831,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         presets = get_available_presets()
         uploads = get_uploaded_images()
         webhook_url = data.get("global", {}).get("webhook_url", "")
+        email_cfg = data.get("global", {}).get("email", {})
+        ha_cfg = data.get("global", {}).get("homeassistant", {})
 
         printer_cards = ""
         if not printers:
@@ -931,7 +1031,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
   .uploaded-item {{ display: flex; align-items: center; justify-content: space-between;
                      background: #0f172a; padding: 6px 12px; border-radius: 6px; margin-top: 6px; }}
 
-  /* Webhook config */
+  /* Notification tabs */
+  .notif-tabs {{ display: flex; gap: 0; border-bottom: 2px solid #1e293b; margin-bottom: 16px; }}
+  .notif-tab {{ padding: 8px 16px; cursor: pointer; color: #94a3b8; font-size: 0.82rem;
+                border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all 0.2s; user-select: none; }}
+  .notif-tab.active {{ color: #60a5fa; border-bottom-color: #60a5fa; }}
+  .notif-tab:hover {{ color: #cbd5e1; }}
+  .notif-panel {{ display: none; }}
+  .notif-panel.active {{ display: block; }}
+  .notif-row {{ display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }}
+  .notif-row label {{ min-width: 100px; color: #94a3b8; font-size: 0.82rem; }}
+  .notif-row input[type="text"], .notif-row input[type="url"], .notif-row input[type="email"],
+  .notif-row input[type="password"], .notif-row input[type="number"] {{ flex: 1; min-width: 180px; }}
   .webhook-row {{ display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }}
   .webhook-row input {{ flex: 1; min-width: 200px; }}
 
@@ -1024,15 +1135,90 @@ class Handler(http.server.BaseHTTPRequestHandler):
     <div id="uploadedList" style="margin-top:10px;">{"".join(f'<div class="uploaded-item" id="upl-{html_mod.escape(u["id"])}"><span class="meta">{html_mod.escape(u["label"])}</span><button class="btn-icon" onclick="deleteImage(&#39;{html_mod.escape(u["id"])}&#39;)" title="Delete">&times;</button></div>' for u in uploads) if uploads else ""}</div>
   </div>
 
-  <!-- Webhook Notifications -->
+  <!-- Notifications (tabbed) -->
   <div class="card">
     <h2>Notifications</h2>
-    <p class="meta" style="margin-bottom:8px;">Webhook URL for print success/failure notifications (Slack, Discord, ntfy, etc.).</p>
-    <div class="webhook-row">
-      <input type="url" class="input-sm" id="webhookUrl" value="{html_mod.escape(webhook_url)}"
-             placeholder="https://hooks.slack.com/..." style="flex:1;">
-      <button class="btn btn-primary btn-sm" onclick="saveWebhook()">Save</button>
-      <span class="btn-msg" id="webhookMsg"></span>
+    <div class="notif-tabs">
+      <div class="notif-tab active" data-tab="webhook" onclick="switchNotifTab('webhook')">Webhook</div>
+      <div class="notif-tab" data-tab="email" onclick="switchNotifTab('email')">Email</div>
+      <div class="notif-tab" data-tab="ha" onclick="switchNotifTab('ha')">Home Assistant</div>
+    </div>
+
+    <!-- Webhook tab -->
+    <div class="notif-panel active" id="notif-webhook">
+      <p class="meta" style="margin-bottom:8px;">HTTP POST notifications (Slack, Discord, ntfy, etc.).</p>
+      <div class="webhook-row">
+        <input type="url" class="input-sm" id="webhookUrl" value="{html_mod.escape(webhook_url)}"
+               placeholder="https://hooks.slack.com/..." style="flex:1;">
+        <button class="btn btn-primary btn-sm" onclick="saveWebhook()">Save</button>
+        <button class="btn btn-sm" onclick="testNotification('webhook')">Test</button>
+        <span class="btn-msg" id="webhookMsg"></span>
+        <span class="btn-msg" id="webhookTestMsg"></span>
+      </div>
+    </div>
+
+    <!-- Email tab -->
+    <div class="notif-panel" id="notif-email">
+      <p class="meta" style="margin-bottom:8px;">Send email notifications via SMTP on print success/failure.</p>
+      <div class="notif-row">
+        <label><input type="checkbox" id="emailEnabled" {"checked" if email_cfg.get("enabled") else ""}> Enabled</label>
+      </div>
+      <div class="notif-row">
+        <label>SMTP Server</label>
+        <input type="text" class="input-sm" id="smtpServer" value="{html_mod.escape(str(email_cfg.get("smtp_server", "")))}" placeholder="smtp.gmail.com">
+        <label style="min-width:auto;">Port</label>
+        <input type="number" class="input-sm" id="smtpPort" value="{email_cfg.get("smtp_port", 587)}" style="width:80px;flex:none;" min="1" max="65535">
+      </div>
+      <div class="notif-row">
+        <label>From</label>
+        <input type="email" class="input-sm" id="smtpFrom" value="{html_mod.escape(str(email_cfg.get("smtp_from", "")))}" placeholder="printer@example.com">
+      </div>
+      <div class="notif-row">
+        <label>To</label>
+        <input type="email" class="input-sm" id="smtpTo" value="{html_mod.escape(str(email_cfg.get("smtp_to", "")))}" placeholder="you@example.com">
+      </div>
+      <div class="notif-row">
+        <label>Username</label>
+        <input type="text" class="input-sm" id="smtpUser" value="{html_mod.escape(str(email_cfg.get("smtp_username", "")))}" placeholder="(optional)">
+      </div>
+      <div class="notif-row">
+        <label>Password</label>
+        <input type="password" class="input-sm" id="smtpPass" value="{"***" if email_cfg.get("smtp_password") else ""}" placeholder="(optional)">
+      </div>
+      <div class="notif-row">
+        <label><input type="checkbox" id="smtpTls" {"checked" if email_cfg.get("smtp_tls", True) else ""}> Use TLS (STARTTLS)</label>
+      </div>
+      <div class="notif-row" style="margin-top:8px;">
+        <button class="btn btn-primary btn-sm" onclick="saveEmailConfig()">Save</button>
+        <button class="btn btn-sm" onclick="testNotification('email')">Test</button>
+        <span class="btn-msg" id="emailMsg"></span>
+        <span class="btn-msg" id="emailTestMsg"></span>
+      </div>
+    </div>
+
+    <!-- Home Assistant tab -->
+    <div class="notif-panel" id="notif-ha">
+      <p class="meta" style="margin-bottom:8px;">Creates a persistent notification in Home Assistant.</p>
+      <div class="notif-row">
+        <label><input type="checkbox" id="haEnabled" {"checked" if ha_cfg.get("enabled") else ""}> Enabled</label>
+      </div>
+      <div class="notif-row">
+        <label>HA URL</label>
+        <input type="url" class="input-sm" id="haUrl" value="{html_mod.escape(str(ha_cfg.get("ha_url", "")))}" placeholder="http://homeassistant.local:8123">
+      </div>
+      <div class="notif-row">
+        <label>Access Token</label>
+        <input type="password" class="input-sm" id="haToken" value="{"***" if ha_cfg.get("ha_token") else ""}" placeholder="Long-lived access token">
+      </div>
+      <div class="notif-row">
+        <label><input type="checkbox" id="haVerifySsl" {"checked" if ha_cfg.get("ha_verify_ssl", True) else ""}> Verify SSL</label>
+      </div>
+      <div class="notif-row" style="margin-top:8px;">
+        <button class="btn btn-primary btn-sm" onclick="saveHAConfig()">Save</button>
+        <button class="btn btn-sm" onclick="testNotification('homeassistant')">Test</button>
+        <span class="btn-msg" id="haMsg"></span>
+        <span class="btn-msg" id="homeassistantTestMsg"></span>
+      </div>
     </div>
   </div>
 
@@ -1332,11 +1518,54 @@ function refreshThumb(id) {{
   }}, 500);
 }}
 
-// ── Webhook ─────────────────────────────────────────────
+// ── Notifications ──────────────────────────────────────
+function switchNotifTab(tab) {{
+  document.querySelectorAll('.notif-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+  document.querySelectorAll('.notif-panel').forEach(p => p.classList.toggle('active', p.id === 'notif-' + tab));
+}}
+
 function saveWebhook() {{
   const url = document.getElementById('webhookUrl').value.trim();
   api('/api/webhook', 'POST', {{ webhook_url: url }}).then(d => {{
     setMsg('webhookMsg', d.ok ? 'Saved' : 'Error', 3000);
+  }});
+}}
+
+function saveEmailConfig() {{
+  const cfg = {{
+    email: {{
+      enabled: document.getElementById('emailEnabled').checked,
+      smtp_server: document.getElementById('smtpServer').value.trim(),
+      smtp_port: parseInt(document.getElementById('smtpPort').value) || 587,
+      smtp_from: document.getElementById('smtpFrom').value.trim(),
+      smtp_to: document.getElementById('smtpTo').value.trim(),
+      smtp_username: document.getElementById('smtpUser').value.trim(),
+      smtp_password: document.getElementById('smtpPass').value,
+      smtp_tls: document.getElementById('smtpTls').checked
+    }}
+  }};
+  api('/api/notifications', 'POST', cfg).then(d => {{
+    setMsg('emailMsg', d.ok ? 'Saved' : (d.message || 'Error'), 3000);
+  }});
+}}
+
+function saveHAConfig() {{
+  const cfg = {{
+    homeassistant: {{
+      enabled: document.getElementById('haEnabled').checked,
+      ha_url: document.getElementById('haUrl').value.trim(),
+      ha_token: document.getElementById('haToken').value,
+      ha_verify_ssl: document.getElementById('haVerifySsl').checked
+    }}
+  }};
+  api('/api/notifications', 'POST', cfg).then(d => {{
+    setMsg('haMsg', d.ok ? 'Saved' : (d.message || 'Error'), 3000);
+  }});
+}}
+
+function testNotification(channel) {{
+  api('/api/notifications/test', 'POST', {{ channel: channel }}).then(d => {{
+    setMsg(channel + 'TestMsg', d.ok ? 'Test sent!' : (d.message || 'Failed'), 5000);
   }});
 }}
 

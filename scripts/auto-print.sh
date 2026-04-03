@@ -220,14 +220,10 @@ JOB_OUTPUT=$(attempt_print) || {
         write_history "error" "Print job failed (after retry)"
         notify_unraid "Print FAILED — $PRINTER_NAME" "Could not submit job after 2 attempts. Check printer connection."
 
-        # Send webhook notification if configured
-        WEBHOOK_URL="${WEBHOOK_URL:-}"
-        if [ -n "$WEBHOOK_URL" ]; then
-            curl -sf -X POST "$WEBHOOK_URL" \
-                -H "Content-Type: application/json" \
-                -d "{\"event\":\"print_failed\",\"printer\":\"$PRINTER_NAME\",\"printer_id\":\"$PRINTER_ID\",\"message\":\"Print failed after 2 attempts\",\"timestamp\":\"$(timestamp)\"}" \
-                2>/dev/null || true
-        fi
+        # Send notifications (webhook, email, HA) if configured
+        python3 /app/notify.py --event print_failed \
+            --printer "$PRINTER_NAME" --printer-id "$PRINTER_ID" \
+            --message "Print failed after 2 attempts" 2>/dev/null || true
         exit 1
     }
 }
@@ -236,14 +232,10 @@ log "SUCCESS: $JOB_OUTPUT"
 write_status "ok" "Print job submitted successfully"
 write_history "ok" "Print job submitted"
 
-# Send webhook notification on success if configured
-WEBHOOK_URL="${WEBHOOK_URL:-}"
-if [ -n "$WEBHOOK_URL" ]; then
-    curl -sf -X POST "$WEBHOOK_URL" \
-        -H "Content-Type: application/json" \
-        -d "{\"event\":\"print_ok\",\"printer\":\"$PRINTER_NAME\",\"printer_id\":\"$PRINTER_ID\",\"message\":\"Print job submitted\",\"timestamp\":\"$(timestamp)\"}" \
-        2>/dev/null || true
-fi
+# Send notifications (webhook, email, HA) if configured
+python3 /app/notify.py --event print_ok \
+    --printer "$PRINTER_NAME" --printer-id "$PRINTER_ID" \
+    --message "Print job submitted" 2>/dev/null || true
 
 # ── Log rotation (keep last 1000 lines for multi-printer) ────────
 if [ -f "$LOG_FILE" ] && [ "$(wc -l < "$LOG_FILE")" -gt 1000 ]; then

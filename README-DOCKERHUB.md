@@ -17,6 +17,8 @@ Pigment printers—especially wide-format models—clog when they sit idle. This
 - **Ink levels** — live ink level bars via IPP attributes
 - **Auto-retry** — retries failed prints once after 30 seconds
 - **Webhook notifications** — Slack, Discord, ntfy compatible alerts
+- **Email notifications** — SMTP-based alerts on print success/failure
+- **Home Assistant integration** — persistent notifications via HA REST API
 - **CSV export** — download print history as CSV
 - **Mobile-friendly** — responsive dashboard layout
 - **Unraid notifications** — get alerts on print failures
@@ -101,8 +103,20 @@ The dashboard at port 8631 lets you:
 - Test printer connection and auto-detect model
 - View real-time ink levels
 - Rename printers inline
-- Configure webhook notifications
+- Configure notifications (webhook, email, Home Assistant)
 - Export print history as CSV
+
+## Notifications
+
+All notification channels are configured from the dashboard under the **Notifications** card. Each channel is independent — enable any combination.
+
+**Webhook** — Enter any URL that accepts JSON POST requests. Compatible with Slack incoming webhooks, Discord webhooks, ntfy, and similar services.
+
+**Email (SMTP)** — Configure your SMTP server details (server, port, from/to addresses, optional auth). Works with Gmail, Outlook, Mailgun, or any SMTP provider. TLS (STARTTLS) is enabled by default.
+
+**Home Assistant** — Enter your HA instance URL and a long-lived access token. Creates a persistent notification in the HA sidebar on each print event. Supports self-signed certificates (toggle "Verify SSL" off). To create a token: HA profile → Long-Lived Access Tokens → Create Token.
+
+Each tab has a **Test** button to verify your config before relying on it.
 
 ## Requirements
 

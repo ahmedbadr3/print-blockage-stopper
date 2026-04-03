@@ -17,7 +17,7 @@
 
     Sends a small test image on a configurable schedule (default: every 3 days) to keep all ink channels flowing and prevent costly pigment clogs and cleaning cycles.
 
-    Features: multi-printer support, network printer discovery, per-printer schedules, smart skip (won't print if the printer was recently used), preset test images for 4/6/8/11/12-colour printers, custom image upload, and a built-in dashboard.
+    Features: multi-printer support, network printer discovery, per-printer schedules, smart skip (won't print if the printer was recently used), preset test images for 4/6/8/11/12-colour printers, custom image upload, notifications (webhook, email, Home Assistant), and a built-in dashboard.
   </Overview>
   <Category>Productivity: Tools:</Category>
   <WebUI>http://[IP]:[PORT:8631]</WebUI>
