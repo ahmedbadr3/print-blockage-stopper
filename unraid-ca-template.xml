@@ -32,6 +32,13 @@
   <Requires>Any network printer with IPP Everywhere support (usually any modern networked printer). Especially useful for pigment printers.</Requires>
   <Beta>false</Beta>
   <Changes>
+    ### 1.5.0
+    - Email notifications (SMTP) — configurable from dashboard
+    - Home Assistant integration — persistent notifications via HA REST API
+    - Tabbed notifications UI (Webhook | Email | Home Assistant)
+    - Test button for each notification channel
+    - Unified notification dispatcher (notify.py)
+    - Added GitHub README
     ### 1.4.1
     - Next scheduled print countdown on each printer card
     - Custom test image delete button
