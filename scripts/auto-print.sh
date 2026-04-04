@@ -228,14 +228,90 @@ JOB_OUTPUT=$(attempt_print) || {
     }
 }
 
-log "SUCCESS: $JOB_OUTPUT"
-write_status "ok" "Print job submitted successfully"
-write_history "ok" "Print job submitted"
+# Extract job ID from lp output (e.g. "request id is PBS_legacy-1 (1 file(s))")
+JOB_ID=$(echo "$JOB_OUTPUT" | grep -o '[^ ]*-[0-9]*' | head -1)
+log "Job submitted: $JOB_OUTPUT (job=$JOB_ID)"
 
-# Send notifications (webhook, email, HA) if configured
-python3 /app/notify.py --event print_ok \
-    --printer "$PRINTER_NAME" --printer-id "$PRINTER_ID" \
-    --message "Print job submitted" 2>/dev/null || true
+# ── Wait for print completion (up to 3 minutes) ─────────────────
+POLL_INTERVAL=5
+MAX_WAIT=180
+ELAPSED=0
+FINAL_STATUS="unknown"
+
+if [ -n "$JOB_ID" ]; then
+    log "Monitoring job $JOB_ID for up to ${MAX_WAIT}s..."
+    while [ "$ELAPSED" -lt "$MAX_WAIT" ]; do
+        sleep "$POLL_INTERVAL"
+        ELAPSED=$((ELAPSED + POLL_INTERVAL))
+
+        # Check if job appears in completed list
+        if lpstat -W completed 2>/dev/null | grep -q "$JOB_ID"; then
+            FINAL_STATUS="completed"
+            break
+        fi
+
+        # Check if job is still active
+        JOB_STATE=$(lpstat -o "$CUPS_NAME" 2>/dev/null | grep "$JOB_ID" || true)
+        if [ -z "$JOB_STATE" ]; then
+            # Job gone from active queue but not in completed — check not-completed
+            if lpstat -W not-completed 2>/dev/null | grep -q "$JOB_ID"; then
+                # Still processing
+                continue
+            fi
+            # Job vanished — assume completed (some CUPS configs don't retain history)
+            FINAL_STATUS="completed"
+            break
+        fi
+
+        # Check for held/stopped state (paper tray, out of paper, etc.)
+        if echo "$JOB_STATE" | grep -qi "held\|stopped\|cancelled\|canceled"; then
+            FINAL_STATUS="stopped"
+            break
+        fi
+    done
+
+    if [ "$ELAPSED" -ge "$MAX_WAIT" ] && [ "$FINAL_STATUS" = "unknown" ]; then
+        FINAL_STATUS="timeout"
+    fi
+else
+    # Couldn't parse job ID — fall back to submission-only status
+    FINAL_STATUS="submitted"
+fi
+
+log "Job $JOB_ID final status: $FINAL_STATUS (after ${ELAPSED}s)"
+
+case "$FINAL_STATUS" in
+    completed|submitted)
+        write_status "ok" "Print completed successfully"
+        write_history "ok" "Print completed"
+        python3 /app/notify.py --event print_ok \
+            --printer "$PRINTER_NAME" --printer-id "$PRINTER_ID" \
+            --message "Print completed successfully" 2>/dev/null || true
+        ;;
+    stopped)
+        REASON=$(lpstat -o "$CUPS_NAME" 2>/dev/null | grep "$JOB_ID" || echo "Job held/stopped — check printer (paper tray, ink, jam)")
+        write_status "error" "Print stopped: $REASON"
+        write_history "error" "Print stopped by printer"
+        notify_unraid "Print STOPPED — $PRINTER_NAME" "$REASON"
+        python3 /app/notify.py --event print_failed \
+            --printer "$PRINTER_NAME" --printer-id "$PRINTER_ID" \
+            --message "Print stopped by printer: $REASON" 2>/dev/null || true
+        ;;
+    timeout)
+        write_status "ok" "Print submitted (completion unconfirmed after ${MAX_WAIT}s)"
+        write_history "ok" "Print submitted (completion unconfirmed)"
+        python3 /app/notify.py --event print_ok \
+            --printer "$PRINTER_NAME" --printer-id "$PRINTER_ID" \
+            --message "Print submitted but completion not confirmed within ${MAX_WAIT}s" 2>/dev/null || true
+        ;;
+    *)
+        write_status "ok" "Print job submitted"
+        write_history "ok" "Print job submitted"
+        python3 /app/notify.py --event print_ok \
+            --printer "$PRINTER_NAME" --printer-id "$PRINTER_ID" \
+            --message "Print job submitted" 2>/dev/null || true
+        ;;
+esac
 
 # ── Log rotation (keep last 1000 lines for multi-printer) ────────
 if [ -f "$LOG_FILE" ] && [ "$(wc -l < "$LOG_FILE")" -gt 1000 ]; then
