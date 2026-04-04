@@ -32,6 +32,12 @@ for arg in "$@"; do
     esac
 done
 
+# Validate PRINTER_ID format (prevent path traversal)
+if [ -z "$PRINTER_ID" ] || ! echo "$PRINTER_ID" | grep -qE '^[a-zA-Z0-9_-]+$'; then
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: Invalid or missing PRINTER_ID: $PRINTER_ID" >> "$LOG_FILE"
+    exit 1
+fi
+
 timestamp() { date '+%Y-%m-%d %H:%M:%S'; }
 epoch_now() { date '+%s'; }
 
@@ -281,28 +287,35 @@ fi
 log "Job $JOB_ID final status: $FINAL_STATUS (after ${ELAPSED}s)"
 
 case "$FINAL_STATUS" in
-    completed|submitted)
+    completed)
         write_status "ok" "Print completed successfully"
         write_history "ok" "Print completed"
-        python3 /app/notify.py --event print_ok \
+        python3 /app/notify.py --event print_completed \
             --printer "$PRINTER_NAME" --printer-id "$PRINTER_ID" \
             --message "Print completed successfully" 2>/dev/null || true
+        ;;
+    submitted)
+        write_status "ok" "Print job submitted"
+        write_history "ok" "Print job submitted"
+        python3 /app/notify.py --event print_ok \
+            --printer "$PRINTER_NAME" --printer-id "$PRINTER_ID" \
+            --message "Print job submitted" 2>/dev/null || true
         ;;
     stopped)
         REASON=$(lpstat -o "$CUPS_NAME" 2>/dev/null | grep "$JOB_ID" || echo "Job held/stopped — check printer (paper tray, ink, jam)")
         write_status "error" "Print stopped: $REASON"
         write_history "error" "Print stopped by printer"
         notify_unraid "Print STOPPED — $PRINTER_NAME" "$REASON"
-        python3 /app/notify.py --event print_failed \
+        python3 /app/notify.py --event print_stopped \
             --printer "$PRINTER_NAME" --printer-id "$PRINTER_ID" \
-            --message "Print stopped by printer: $REASON" 2>/dev/null || true
+            --message "$REASON" 2>/dev/null || true
         ;;
     timeout)
         write_status "ok" "Print submitted (completion unconfirmed after ${MAX_WAIT}s)"
         write_history "ok" "Print submitted (completion unconfirmed)"
-        python3 /app/notify.py --event print_ok \
+        python3 /app/notify.py --event print_timeout \
             --printer "$PRINTER_NAME" --printer-id "$PRINTER_ID" \
-            --message "Print submitted but completion not confirmed within ${MAX_WAIT}s" 2>/dev/null || true
+            --message "Completion not confirmed within ${MAX_WAIT}s — check printer" 2>/dev/null || true
         ;;
     *)
         write_status "ok" "Print job submitted"

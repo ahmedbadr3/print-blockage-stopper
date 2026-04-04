@@ -156,7 +156,8 @@ def log(msg):
 
 def main():
     parser = argparse.ArgumentParser(description="Send notifications for print events")
-    parser.add_argument("--event", required=True, choices=["print_ok", "print_failed", "test"])
+    parser.add_argument("--event", required=True,
+                        choices=["print_ok", "print_completed", "print_failed", "print_stopped", "print_timeout", "test"])
     parser.add_argument("--printer", default="")
     parser.add_argument("--printer-id", default="")
     parser.add_argument("--message", default="")
@@ -178,20 +179,32 @@ def main():
         "timestamp": now,
     }
 
-    if args.event == "print_ok":
+    ha_title = "Print Blockage Stopper"
+
+    if args.event == "print_completed":
+        subject = f"Print Completed — {args.printer}"
+        body = f"Print job completed successfully for {args.printer}.\n\n{args.message}\n\nTimestamp: {now}"
+        ha_message = f"✅ Print completed: {args.printer}"
+    elif args.event == "print_ok":
+        # Legacy / submission-only confirmation
         subject = f"Print OK — {args.printer}"
-        body = f"Print job submitted successfully for {args.printer}.\n\nTimestamp: {now}"
-        ha_title = "Print Blockage Stopper"
-        ha_message = f"Print OK: {args.printer} — {args.message}"
+        body = f"Print job submitted for {args.printer}.\n\n{args.message}\n\nTimestamp: {now}"
+        ha_message = f"Print submitted: {args.printer} — {args.message}"
+    elif args.event == "print_stopped":
+        subject = f"Print STOPPED — {args.printer}"
+        body = f"Print job was stopped by the printer for {args.printer}.\n\nThis usually means a hardware issue (paper tray not down, out of paper, ink issue, or paper jam).\n\n{args.message}\n\nTimestamp: {now}"
+        ha_message = f"⚠️ Print stopped: {args.printer} — check printer"
+    elif args.event == "print_timeout":
+        subject = f"Print Unconfirmed — {args.printer}"
+        body = f"Print job was submitted for {args.printer} but completion could not be confirmed within the monitoring window.\n\nThe print may still complete — check the printer.\n\n{args.message}\n\nTimestamp: {now}"
+        ha_message = f"⏳ Print unconfirmed: {args.printer} — check printer"
     elif args.event == "print_failed":
         subject = f"Print FAILED — {args.printer}"
         body = f"Print job failed for {args.printer}.\n\n{args.message}\n\nTimestamp: {now}"
-        ha_title = "Print Blockage Stopper"
-        ha_message = f"Print FAILED: {args.printer} — {args.message}"
+        ha_message = f"❌ Print failed: {args.printer} — {args.message}"
     else:  # test
         subject = "Print Blockage Stopper — Test Notification"
         body = "This is a test notification from Print Blockage Stopper."
-        ha_title = "Print Blockage Stopper"
         ha_message = "This is a test notification."
         webhook_payload["event"] = "test"
         webhook_payload["message"] = "Test notification"

@@ -239,6 +239,12 @@ def get_image_thumbnail_b64(printer):
         img.save(buf, format="PNG")
         return f"data:image/png;base64,{base64.b64encode(buf.getvalue()).decode()}"
     except Exception:
+        # Clean up partial cache file if save failed
+        if 'cache_path' in dir() and os.path.exists(cache_path):
+            try:
+                os.remove(cache_path)
+            except OSError:
+                pass
         return ""
 
 # ── Cron next-fire calculation ──────────────────────────────────
@@ -265,8 +271,9 @@ def cron_next(cron_expr):
     for _ in range(400):
         # Check day-of-week constraint
         if dow != "*":
-            if str(candidate.weekday() + 1) != dow and str(candidate.isoweekday()) != dow:
-                # Python: Monday=0, cron: Monday=1
+            # Cron: 0=Sun, 1=Mon...6=Sat; Python weekday(): 0=Mon...6=Sun
+            cron_dow = (candidate.weekday() + 1) % 7
+            if str(cron_dow) != dow:
                 candidate += td(days=1)
                 continue
         # Check day-of-month constraint
@@ -454,7 +461,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
         ip = body.get("ip", "").strip()
         conn = body.get("connection", "ipp")
-        port = int(body.get("port", 9100))
+        try:
+            port = int(body.get("port", 9100))
+            if port < 1 or port > 65535:
+                raise ValueError()
+        except (ValueError, TypeError):
+            self._json_response({"ok": False, "message": "Invalid port number (1-65535)"}, 400)
+            return
         if not ip:
             self._json_response({"ok": False, "message": "IP required"}, 400)
             return
@@ -483,10 +496,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         printer = {
             "id": printer_id, "name": name, "ip": ip,
             "connection": body.get("connection", "ipp"),
-            "port": int(body.get("port", 9100)),
+            "port": max(1, min(65535, int(body.get("port", 9100)))),
             "paper_size": body.get("paper_size", "A4"),
             "schedule": body.get("schedule", data["global"]["schedule"]),
-            "skip_hours": int(body.get("skip_hours", data["global"]["skip_hours"])),
+            "skip_hours": max(1, min(8760, int(body.get("skip_hours", data["global"]["skip_hours"])))),
             "paused": False,
             "test_image": body.get("test_image", "preset-11"),
             "cups_name": cups_name,
@@ -1287,7 +1300,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
     <a href="/printers" target="_blank">CUPS Printer Status (port 631)</a>
   </div>
 
-  <div class="footer">print-blockage-stopper v1.4.1</div>
+  <div class="footer">print-blockage-stopper v1.5.1</div>
 </div>
 
 <script>

@@ -32,6 +32,13 @@
   <Requires>Any network printer with IPP Everywhere support (usually any modern networked printer). Especially useful for pigment printers.</Requires>
   <Beta>false</Beta>
   <Changes>
+    ### 1.5.1
+    - Print completion monitoring — polls CUPS job status for up to 3 minutes
+    - Detects stopped/held jobs (paper tray, jam, ink issues)
+    - Distinct notification events: completed, stopped, timeout, failed
+    - Input validation fixes (port, skip hours)
+    - Fixed cron day-of-week parsing bug
+    - PRINTER_ID path traversal prevention
     ### 1.5.0
     - Email notifications (SMTP) — configurable from dashboard
     - Home Assistant integration — persistent notifications via HA REST API
