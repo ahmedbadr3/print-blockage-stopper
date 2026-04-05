@@ -922,7 +922,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                  title="Double-click to rename">{html_mod.escape(p["name"])}</div>
             <span class="printer-ip">{html_mod.escape(p["ip"])}</span>
           </div>
-          <button class="btn-icon" onclick="removePrinter('{p["id"]}')" title="Remove printer">&times;</button>
+          <button class="btn-icon" onclick="removePrinter('{p["id"]}')" title="Remove printer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14"/></svg></button>
         </div>
         <div class="meta" id="model-{p["id"]}"></div>
         <div class="meta" id="status-row-{p["id"]}">
@@ -971,11 +971,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
               {img_options}
             </select>
             {thumb_html}
-            <a href="/api/download-image/{p["id"]}" class="btn btn-sm" style="padding:2px 8px;font-size:0.75rem;text-decoration:none;" title="Download test image">&#x2B07; Download</a>
+            <a href="/api/download-image/{p["id"]}" class="btn btn-sm" style="padding:2px 8px;font-size:0.75rem;text-decoration:none;display:inline-flex;align-items:center;gap:4px;" title="Download test image"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>Download</a>
           </div>
           <div class="next-print meta" id="next-{p["id"]}">Next print: calculating...</div>
           <div class="btn-row">
-            <button class="btn btn-primary btn-sm" onclick="printNow('{p["id"]}')">Print Now</button>
+            <button class="btn btn-primary btn-sm" onclick="printNow('{p["id"]}')" style="display:inline-flex;align-items:center;gap:5px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V2h12v7M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>Print Now</button>
             <span class="btn-msg" id="msg-{p["id"]}"></span>
           </div>
         </div>
@@ -996,37 +996,60 @@ class Handler(http.server.BaseHTTPRequestHandler):
   body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
          background: #0f172a; color: #e2e8f0; padding: 16px; line-height: 1.5; }}
   .container {{ max-width: 800px; margin: 0 auto; }}
-  h1 {{ font-size: 1.4rem; font-weight: 600; margin-bottom: 4px; }}
-  .subtitle {{ color: #94a3b8; font-size: 0.85rem; margin-bottom: 20px; }}
-  .card {{ background: #1e293b; border-radius: 10px; padding: 16px; margin-bottom: 14px; }}
-  .card h2 {{ font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em;
-              color: #64748b; margin-bottom: 10px; }}
 
-  .printer-card {{ border-left: 3px solid #334155; }}
+  /* Header */
+  .app-header {{ display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }}
+  .app-header img {{ width: 36px; height: 36px; border-radius: 8px; }}
+  h1 {{ font-size: 1.6rem; font-weight: 700; margin-bottom: 2px; letter-spacing: -0.01em; }}
+  .subtitle {{ color: #94a3b8; font-size: 0.85rem; letter-spacing: 0.02em; }}
+
+  /* Cards */
+  .card {{ background: #1e293b; border-radius: 12px; padding: 16px; margin-bottom: 14px;
+           transition: transform 0.2s, box-shadow 0.2s; }}
+  .card:hover {{ transform: translateY(-1px); box-shadow: 0 4px 16px rgba(0,0,0,0.25); }}
+  .card h2 {{ font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em;
+              color: #64748b; margin-bottom: 10px; padding-bottom: 6px;
+              border-bottom: 2px solid transparent;
+              border-image: linear-gradient(90deg, #3b82f6, #6366f1, transparent) 1; }}
+
+  /* Printer cards */
+  .printer-card {{ border-left: 3px solid #334155; transition: border-color 0.3s, transform 0.2s, box-shadow 0.2s; }}
+  .printer-card.status-ok {{ border-left-color: #22c55e; }}
+  .printer-card.status-error {{ border-left-color: #ef4444; }}
   .printer-header {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }}
   .printer-name {{ font-size: 1.05rem; font-weight: 600; cursor: pointer; border-bottom: 1px dashed transparent; }}
   .printer-name:hover {{ border-bottom-color: #64748b; }}
   .printer-ip {{ color: #64748b; font-size: 0.8rem; font-family: monospace; margin-left: 10px; }}
-  .btn-icon {{ background: none; border: none; color: #64748b; font-size: 1.4rem; cursor: pointer;
-               padding: 2px 8px; border-radius: 4px; }}
+  .btn-icon {{ background: none; border: none; color: #64748b; cursor: pointer;
+               padding: 4px 8px; border-radius: 6px; transition: all 0.15s; display: inline-flex; align-items: center; }}
   .btn-icon:hover {{ background: #334155; color: #ef4444; }}
+  .btn-icon svg {{ width: 16px; height: 16px; }}
 
   .printer-controls {{ display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }}
   .control-group {{ display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }}
   .control-group label {{ font-size: 0.82rem; color: #94a3b8; min-width: 130px; }}
   @media (max-width: 600px) {{ .control-group label {{ min-width: 100%; }} }}
 
+  /* Status dot with pulse */
   .status-row {{ display: flex; align-items: center; gap: 8px; }}
   .conn-dot {{ width: 10px; height: 10px; border-radius: 50%; background: #a3a3a3; flex-shrink: 0;
-               transition: background 0.3s; }}
+               transition: background 0.3s, box-shadow 0.3s; }}
+  .conn-dot.connected {{ background: #22c55e; box-shadow: 0 0 6px #22c55e80; animation: pulse-dot 2s ease-in-out infinite; }}
+  .conn-dot.disconnected {{ background: #ef4444; box-shadow: 0 0 6px #ef444480; }}
+  @keyframes pulse-dot {{
+    0%, 100% {{ transform: scale(1); opacity: 1; }}
+    50% {{ transform: scale(1.3); opacity: 0.7; }}
+  }}
   .meta {{ color: #94a3b8; font-size: 0.82rem; display: flex; gap: 14px; flex-wrap: wrap; }}
   .schedule-state {{ font-size: 0.8rem; font-weight: 600; }}
 
   /* Ink levels */
-  .ink-bar-container {{ display: flex; gap: 4px; flex-wrap: wrap; margin: 6px 0; }}
-  .ink-bar {{ display: flex; align-items: center; gap: 4px; font-size: 0.7rem; }}
-  .ink-bar-bg {{ width: 50px; height: 8px; background: #334155; border-radius: 4px; overflow: hidden; }}
-  .ink-bar-fill {{ height: 100%; border-radius: 4px; transition: width 0.3s; }}
+  .ink-bar-container {{ display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0; }}
+  .ink-bar {{ display: flex; align-items: center; gap: 4px; font-size: 0.7rem; position: relative; }}
+  .ink-bar-bg {{ width: 50px; height: 10px; background: #1a2332; border-radius: 5px; overflow: hidden;
+                 box-shadow: inset 0 1px 2px rgba(0,0,0,0.3); }}
+  .ink-bar-fill {{ height: 100%; border-radius: 5px; transition: width 0.3s;
+                   background-image: linear-gradient(180deg, rgba(255,255,255,0.15) 0%, transparent 100%); }}
   .ink-label {{ color: #94a3b8; }}
 
   /* Thumbnail */
@@ -1035,40 +1058,50 @@ class Handler(http.server.BaseHTTPRequestHandler):
   .next-print {{ font-size: 0.82rem; color: #94a3b8; padding: 4px 0; }}
   .next-print strong {{ color: #e2e8f0; }}
 
+  /* Buttons */
   .btn {{ color: white; border: none; border-radius: 8px; padding: 10px 24px; font-size: 0.95rem;
           cursor: pointer; font-weight: 500; transition: all 0.15s; }}
-  .btn:hover {{ filter: brightness(1.1); }}
-  .btn:disabled {{ background: #475569 !important; cursor: not-allowed; filter: none; }}
-  .btn-primary {{ background: #3b82f6; }}
+  .btn:hover {{ filter: brightness(1.1); transform: translateY(-1px); }}
+  .btn:active {{ transform: scale(0.97); filter: brightness(0.95); }}
+  .btn:disabled {{ background: #475569 !important; cursor: not-allowed; filter: none; transform: none; }}
+  .btn-primary {{ background: linear-gradient(135deg, #3b82f6, #6366f1); }}
   .btn-sm {{ padding: 6px 14px; font-size: 0.8rem; border-radius: 6px; }}
   .btn-row {{ display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }}
   .btn-msg {{ font-size: 0.8rem; color: #94a3b8; }}
 
   .input-sm {{ background: #0f172a; border: 1px solid #334155; border-radius: 6px;
-               color: #e2e8f0; padding: 6px 10px; font-size: 0.85rem; }}
-  .input-sm:focus {{ border-color: #3b82f6; outline: none; }}
+               color: #e2e8f0; padding: 6px 10px; font-size: 0.85rem; transition: border-color 0.2s; }}
+  .input-sm:focus {{ border-color: #3b82f6; outline: none; box-shadow: 0 0 0 2px rgba(59,130,246,0.15); }}
   input[type=number].input-sm {{ width: 70px; }}
   .select-sm {{ background: #0f172a; border: 1px solid #334155; border-radius: 6px;
-                color: #e2e8f0; padding: 6px 10px; font-size: 0.82rem; max-width: 180px; }}
+                color: #e2e8f0; padding: 6px 10px; font-size: 0.82rem; max-width: 180px; transition: border-color 0.2s; }}
+  .select-sm:focus {{ border-color: #3b82f6; outline: none; box-shadow: 0 0 0 2px rgba(59,130,246,0.15); }}
 
   .add-form {{ display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }}
   .add-form .full {{ grid-column: 1 / -1; }}
   .add-form label {{ font-size: 0.8rem; color: #94a3b8; margin-bottom: 2px; display: block; }}
   .add-form input, .add-form select {{ width: 100%; background: #0f172a; border: 1px solid #334155;
-    border-radius: 6px; color: #e2e8f0; padding: 8px 10px; font-size: 0.85rem; }}
-  .add-form input:focus, .add-form select:focus {{ border-color: #3b82f6; outline: none; }}
+    border-radius: 6px; color: #e2e8f0; padding: 8px 10px; font-size: 0.85rem; transition: border-color 0.2s; }}
+  .add-form input:focus, .add-form select:focus {{ border-color: #3b82f6; outline: none; box-shadow: 0 0 0 2px rgba(59,130,246,0.15); }}
   @media (max-width: 600px) {{ .add-form {{ grid-template-columns: 1fr; }} }}
 
   .discover-list {{ display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }}
   .discover-item {{ display: flex; justify-content: space-between; align-items: center;
-                     background: #0f172a; padding: 10px 14px; border-radius: 8px; }}
+                     background: #0f172a; padding: 10px 14px; border-radius: 8px; transition: background 0.15s; }}
+  .discover-item:hover {{ background: #162032; }}
 
   .empty-state {{ text-align: center; color: #64748b; padding: 30px 20px; font-size: 0.9rem; }}
 
+  /* Chart with tooltips */
   .chart-container {{ margin-top: 8px; }}
   .chart-bar-wrap {{ display: flex; align-items: flex-end; gap: 2px; height: 80px; border-bottom: 1px solid #334155; }}
-  .chart-bar {{ flex: 1; min-width: 2px; border-radius: 3px 3px 0 0; cursor: default; transition: opacity 0.15s; }}
-  .chart-bar:hover {{ opacity: 0.8; }}
+  .chart-bar {{ flex: 1; min-width: 2px; border-radius: 3px 3px 0 0; cursor: default; transition: opacity 0.15s;
+                position: relative; }}
+  .chart-bar:hover {{ opacity: 0.85; }}
+  .chart-bar[data-tip]:hover::after {{ content: attr(data-tip); position: absolute; bottom: calc(100% + 6px);
+    left: 50%; transform: translateX(-50%); background: #0f172a; border: 1px solid #334155; color: #e2e8f0;
+    padding: 4px 8px; border-radius: 6px; font-size: 0.7rem; white-space: nowrap; z-index: 10;
+    pointer-events: none; box-shadow: 0 2px 8px rgba(0,0,0,0.3); }}
   .chart-labels {{ display: flex; justify-content: space-between; font-size: 0.65rem; color: #475569;
                     margin-top: 4px; padding: 0 2px; }}
   .chart-legend {{ display: flex; gap: 16px; font-size: 0.72rem; color: #94a3b8; margin-top: 8px; }}
@@ -1098,6 +1131,23 @@ class Handler(http.server.BaseHTTPRequestHandler):
   .webhook-row {{ display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }}
   .webhook-row input {{ flex: 1; min-width: 200px; }}
 
+  /* Toast notifications */
+  .toast-container {{ position: fixed; bottom: 20px; right: 20px; z-index: 1000; display: flex;
+                      flex-direction: column; gap: 8px; pointer-events: none; }}
+  .toast {{ background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 12px 16px;
+            font-size: 0.85rem; color: #e2e8f0; box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+            border-left: 3px solid #3b82f6; pointer-events: auto; animation: toast-in 0.3s ease-out;
+            max-width: 320px; }}
+  .toast.success {{ border-left-color: #22c55e; }}
+  .toast.error {{ border-left-color: #ef4444; }}
+  .toast.fade-out {{ animation: toast-out 0.3s ease-in forwards; }}
+  @keyframes toast-in {{ from {{ transform: translateX(100%); opacity: 0; }} to {{ transform: translateX(0); opacity: 1; }} }}
+  @keyframes toast-out {{ from {{ opacity: 1; }} to {{ opacity: 0; transform: translateX(30px); }} }}
+
+  /* Card animations */
+  .card-enter {{ animation: card-in 0.3s ease-out; }}
+  @keyframes card-in {{ from {{ opacity: 0; transform: translateY(10px); }} to {{ opacity: 1; transform: translateY(0); }} }}
+
   pre {{ background: #0f172a; border-radius: 6px; padding: 12px; font-size: 0.78rem;
          overflow-x: auto; max-height: 280px; overflow-y: auto; color: #cbd5e1;
          line-height: 1.6; white-space: pre-wrap; word-break: break-all; }}
@@ -1114,8 +1164,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
 </head>
 <body>
 <div class="container">
-  <h1>Print Blockage Stopper</h1>
-  <p class="subtitle">Automated Print Head Maintenance</p>
+  <div class="app-header">
+    <img src="/favicon.ico" alt="" width="36" height="36">
+    <div>
+      <h1>Print Blockage Stopper</h1>
+      <p class="subtitle">Automated Print Head Maintenance</p>
+    </div>
+  </div>
 
   <div id="printerCards">{printer_cards}</div>
 
@@ -1123,7 +1178,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
   <div class="card">
     <h2>Add Printer</h2>
     <div class="btn-row" style="margin-bottom:10px;">
-      <button class="btn btn-sm" style="background:#6366f1" onclick="discoverPrinters()" id="discoverBtn">Discover on Network</button>
+      <button class="btn btn-sm" style="background:#6366f1;display:inline-flex;align-items:center;gap:5px;" onclick="discoverPrinters()" id="discoverBtn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>Discover on Network</button>
       <span class="btn-msg" id="discoverMsg"></span>
     </div>
     <div id="discoverResults"></div>
@@ -1184,7 +1239,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
       <button class="btn btn-primary btn-sm" onclick="uploadImage()">Upload</button>
       <span class="btn-msg" id="uploadMsg"></span>
     </div>
-    <div id="uploadedList" style="margin-top:10px;">{"".join(f'<div class="uploaded-item" id="upl-{html_mod.escape(u["id"])}"><span class="meta">{html_mod.escape(u["label"])}</span><button class="btn-icon" onclick="deleteImage(&#39;{html_mod.escape(u["id"])}&#39;)" title="Delete">&times;</button></div>' for u in uploads) if uploads else ""}</div>
+    <div id="uploadedList" style="margin-top:10px;">{"".join(f'<div class="uploaded-item" id="upl-{html_mod.escape(u["id"])}"><span class="meta">{html_mod.escape(u["label"])}</span><button class="btn-icon" onclick="deleteImage(&#39;{html_mod.escape(u["id"])}&#39;)" title="Delete"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14"/></svg></button></div>' for u in uploads) if uploads else ""}</div>
   </div>
 
   <!-- Notifications (tabbed) -->
@@ -1302,6 +1357,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
   <div class="footer">print-blockage-stopper v1.5.1</div>
 </div>
+<div class="toast-container" id="toastContainer"></div>
 
 <script>
 const historyData = {history_json};
@@ -1318,10 +1374,19 @@ function setMsg(id, text, timeout) {{
   if (el) {{ el.textContent = text; if (timeout) setTimeout(() => el.textContent = '', timeout); }}
 }}
 
+function showToast(message, type) {{
+  const c = document.getElementById('toastContainer');
+  const t = document.createElement('div');
+  t.className = 'toast ' + (type || '');
+  t.textContent = message;
+  c.appendChild(t);
+  setTimeout(() => {{ t.classList.add('fade-out'); setTimeout(() => t.remove(), 300); }}, 3000);
+}}
+
 // ── Printer actions ─────────────────────────────────────
 function printNow(id) {{
   api('/api/print-now/' + id, 'POST').then(() => {{
-    setMsg('msg-' + id, 'Print triggered.', 5000);
+    showToast('Print triggered', 'success');
     setTimeout(refreshLogs, 3000);
     setTimeout(refreshAllStatus, 5000);
     setTimeout(refreshAllStatus, 15000);
@@ -1333,7 +1398,7 @@ function toggleSchedule(id) {{
 function updatePrinter(id, updates) {{
   updates.id = id;
   api('/api/printers/update', 'POST', updates).then(d => {{
-    if (d.ok) setMsg('msg-' + id, 'Saved', 3000);
+    if (d.ok) showToast('Settings saved', 'success');
   }});
 }}
 function removePrinter(id) {{
@@ -1390,9 +1455,14 @@ function probeAllPrinters() {{
       // Connection dot
       const dot = document.getElementById('conn-' + id);
       if (dot) {{
-        dot.style.background = d.reachable ? '#22c55e' : '#ef4444';
-        dot.style.boxShadow = d.reachable ? '0 0 6px #22c55e80' : '0 0 6px #ef444480';
+        dot.className = 'conn-dot ' + (d.reachable ? 'connected' : 'disconnected');
         dot.title = d.reachable ? 'Connected' : 'Unreachable';
+      }}
+      // Update card border color based on status
+      const card = dot ? dot.closest('.printer-card') : null;
+      if (card) {{
+        card.classList.remove('status-ok', 'status-error');
+        card.classList.add(d.reachable ? 'status-ok' : 'status-error');
       }}
       // Model name
       const modelEl = document.getElementById('model-' + id);
@@ -1467,7 +1537,7 @@ function updateSchedule(id) {{
 
 function addPrinter() {{
   const ip = document.getElementById('addIp').value.trim();
-  if (!ip) {{ setMsg('addMsg', 'IP address is required', 3000); return; }}
+  if (!ip) {{ showToast('IP address is required', 'error'); return; }}
   const btn = document.getElementById('addBtn');
   btn.disabled = true;
   api('/api/printers/add', 'POST', {{
@@ -1478,8 +1548,8 @@ function addPrinter() {{
   }}).then(d => {{
     btn.disabled = false;
     if (d.ok) location.reload();
-    else setMsg('addMsg', d.message || 'Failed', 5000);
-  }}).catch(() => {{ btn.disabled = false; setMsg('addMsg', 'Network error', 3000); }});
+    else showToast(d.message || 'Failed to add printer', 'error');
+  }}).catch(() => {{ btn.disabled = false; showToast('Network error', 'error'); }});
 }}
 
 // ── Discovery ───────────────────────────────────────────
@@ -1490,7 +1560,7 @@ function discoverPrinters() {{
   api('/api/discover', 'GET').then(d => {{
     btn.disabled = false; btn.textContent = 'Discover on Network';
     if (!d.printers || !d.printers.length) {{
-      setMsg('discoverMsg', 'No printers found. Try adding manually.', 5000);
+      showToast('No printers found. Try adding manually.', '');
       container.innerHTML = ''; return;
     }}
     let h = '<div class="discover-list">';
@@ -1512,14 +1582,14 @@ function quickAdd(ip, name) {{
 // ── Image upload ────────────────────────────────────────
 function uploadImage() {{
   const input = document.getElementById('uploadFile');
-  if (!input.files.length) {{ setMsg('uploadMsg', 'Select a file', 3000); return; }}
+  if (!input.files.length) {{ showToast('Select a file first', 'error'); return; }}
   const file = input.files[0];
-  if (file.size > 5*1024*1024) {{ setMsg('uploadMsg', 'Too large (max 5 MB)', 3000); return; }}
+  if (file.size > 5*1024*1024) {{ showToast('Too large (max 5 MB)', 'error'); return; }}
   const form = new FormData(); form.append('file', file);
   fetch('/api/upload-image', {{ method: 'POST', body: form }}).then(r => r.json()).then(d => {{
-    if (d.ok) {{ setMsg('uploadMsg', 'Uploaded!', 5000); setTimeout(() => location.reload(), 1500); }}
-    else setMsg('uploadMsg', d.message || 'Failed', 5000);
-  }}).catch(e => setMsg('uploadMsg', 'Error', 5000));
+    if (d.ok) {{ showToast('Image uploaded!', 'success'); setTimeout(() => location.reload(), 1500); }}
+    else showToast(d.message || 'Upload failed', 'error');
+  }}).catch(e => showToast('Upload error', 'error'));
 }}
 
 function deleteImage(imageId) {{
@@ -1579,7 +1649,7 @@ function switchNotifTab(tab) {{
 function saveWebhook() {{
   const url = document.getElementById('webhookUrl').value.trim();
   api('/api/webhook', 'POST', {{ webhook_url: url }}).then(d => {{
-    setMsg('webhookMsg', d.ok ? 'Saved' : 'Error', 3000);
+    showToast(d.ok ? 'Webhook saved' : 'Error saving webhook', d.ok ? 'success' : 'error');
   }});
 }}
 
@@ -1597,7 +1667,7 @@ function saveEmailConfig() {{
     }}
   }};
   api('/api/notifications', 'POST', cfg).then(d => {{
-    setMsg('emailMsg', d.ok ? 'Saved' : (d.message || 'Error'), 3000);
+    showToast(d.ok ? 'Email settings saved' : (d.message || 'Error'), d.ok ? 'success' : 'error');
   }});
 }}
 
@@ -1611,7 +1681,7 @@ function saveHAConfig() {{
     }}
   }};
   api('/api/notifications', 'POST', cfg).then(d => {{
-    setMsg('haMsg', d.ok ? 'Saved' : (d.message || 'Error'), 3000);
+    showToast(d.ok ? 'Home Assistant settings saved' : (d.message || 'Error'), d.ok ? 'success' : 'error');
   }});
 }}
 
@@ -1636,8 +1706,10 @@ function testNotification(channel) {{
       ha_verify_ssl: document.getElementById('haVerifySsl').checked
     }};
   }}
+  const names = {{ webhook: 'Webhook', email: 'Email', homeassistant: 'Home Assistant' }};
+  showToast('Sending ' + names[channel] + ' test...', '');
   api('/api/notifications/test', 'POST', {{ channel: channel, config: cfg }}).then(d => {{
-    setMsg(channel + 'TestMsg', d.ok ? 'Test sent!' : (d.message || 'Failed'), 5000);
+    showToast(d.ok ? names[channel] + ' test sent!' : (d.message || 'Test failed'), d.ok ? 'success' : 'error');
   }});
 }}
 
@@ -1663,6 +1735,7 @@ function renderChart() {{
     if (!total) {{ bar.style.height = '4px'; bar.style.background = '#1e293b'; }}
     else {{ bar.style.height = Math.max(8, Math.min(100, total*20))+'px'; bar.style.background = errs > 0 ? '#ef4444' : oks > 0 ? '#22c55e' : '#3b82f6'; }}
     bar.title = `${{day.date}}: ${{oks}} printed, ${{skips}} skipped, ${{errs}} failed`;
+    if (total) bar.setAttribute('data-tip', `${{day.date.slice(5)}}: ${{oks}}ok ${{skips}}skip ${{errs}}err`);
     container.appendChild(bar);
   }});
   if (days.length >= 3) {{
