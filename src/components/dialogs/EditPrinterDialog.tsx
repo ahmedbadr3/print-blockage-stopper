@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { X, Trash2, Save } from "lucide-react";
 import { Printer } from "../../types/printer";
 import { useUpdatePrinter, useRemovePrinter } from "../../hooks/usePrinters";
@@ -21,6 +21,11 @@ export default function EditPrinterDialog({ printer, onClose }: Props) {
   const removePrinter = useRemovePrinter();
   const [form, setForm] = useState(printer);
   const [confirmDelete, setConfirmDelete] = useState(false);
+
+  useEffect(() => {
+    setForm(printer);
+    setConfirmDelete(false);
+  }, [printer]);
 
   if (!printer || !form) return null;
 

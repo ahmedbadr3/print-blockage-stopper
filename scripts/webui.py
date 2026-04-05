@@ -326,11 +326,25 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         # ── API routes ───────────────────────────────────────
         if self.path == "/api/printers":
-            self._json_response(read_printers())
+            data = read_printers()
+            for p in data["printers"]:
+                st = get_printer_status(p["id"])
+                p["status"] = st.get("status", "unknown")
+                p["last_print"] = st.get("timestamp")
+                p["last_result"] = st.get("status", "unknown")
+                if st.get("status") == "unknown":
+                    p["last_result"] = None
+            self._json_response(data)
         elif self.path == "/api/discover":
             self._json_response({"printers": discover_printers()})
         elif self.path == "/api/history":
-            self._json_response({"history": get_history()})
+            history = get_history()
+            printers_data = read_printers()
+            name_map = {p["id"]: p.get("name", p["id"]) for p in printers_data["printers"]}
+            for i, h in enumerate(history):
+                h["id"] = h.get("id", str(i))
+                h["printer_name"] = name_map.get(h.get("printer_id", ""), h.get("printer_id", "Unknown"))
+            self._json_response({"history": history})
         elif self.path == "/api/history.csv":
             self._serve_history_csv()
         elif self.path == "/api/logs":
