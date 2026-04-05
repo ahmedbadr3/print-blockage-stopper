@@ -5,19 +5,9 @@
 # healthy by sending a small test print on a schedule. Supports multiple
 # printers, mDNS discovery, custom test images, and a web dashboard.
 #
-# v2.0: React/TypeScript dashboard redesign, dark mode, multi-page layout
+# v1.5: Email/HA notifications, print completion monitoring, security fixes
 ###############################################################################
 
-# ── Stage 1: Build React frontend ────────────────────────────
-FROM node:20-alpine AS frontend
-WORKDIR /build
-COPY package.json ./
-RUN npm install
-COPY index.html vite.config.ts tsconfig.json tsconfig.app.json tsconfig.node.json tailwind.config.ts postcss.config.js ./
-COPY src/ ./src/
-RUN npx vite build
-
-# ── Stage 2: Runtime ─────────────────────────────────────────
 FROM debian:bookworm-slim
 
 LABEL maintainer="ahmed@abadr.net"
@@ -120,11 +110,6 @@ COPY scripts/printer_probe.py /app/printer_probe.py
 COPY scripts/stamp_image.py /app/stamp_image.py
 COPY scripts/notify.py /app/notify.py
 COPY favicon.ico /app/favicon.ico
-
-# ── Copy built React frontend ───────────────────────────────
-COPY --from=frontend /build/dist /app/static
-# Favicon also needs to be in static dir for SPA serving
-COPY favicon.ico /app/static/favicon.ico
 
 RUN chmod +x /app/entrypoint.sh /app/auto-print.sh
 

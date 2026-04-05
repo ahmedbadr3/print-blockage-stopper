@@ -17,7 +17,7 @@
 
     Sends a small test image on a configurable schedule (default: every 3 days) to keep all ink channels flowing and prevent costly pigment clogs and cleaning cycles.
 
-    Features: multi-printer support, network printer discovery, per-printer schedules, smart skip (won't print if the printer was recently used), preset test images for 4/6/8/11/12-colour printers, custom image upload, notifications (webhook, email, Home Assistant), and a modern React dashboard with dark mode.
+    Features: multi-printer support, network printer discovery, per-printer schedules, smart skip (won't print if the printer was recently used), preset test images for 4/6/8/11/12-colour printers, custom image upload, notifications (webhook, email, Home Assistant), and a built-in dashboard.
   </Overview>
   <Category>Productivity: Tools:</Category>
   <WebUI>http://[IP]:[PORT:8631]</WebUI>
@@ -32,27 +32,6 @@
   <Requires>Any network printer with IPP Everywhere support (usually any modern networked printer). Especially useful for pigment printers.</Requires>
   <Beta>false</Beta>
   <Changes>
-    ### 2.0.0
-    - Complete dashboard redesign with React, TypeScript, and Tailwind CSS
-    - New multi-page layout with sidebar navigation (Dashboard, History, Settings)
-    - Dark mode support with system-aware theme toggle
-    - Redesigned printer cards with inline ink levels and quick actions
-    - Modal-based Add/Edit printer dialogs with form validation
-    - Dedicated History page with filterable records and chart visualizations
-    - Centralized Settings page for global preferences and notifications
-    - TanStack Query for efficient data fetching with background refresh
-    - Fully responsive design with collapsible sidebar
-    ### 1.6.0
-    - Dashboard visual refresh — modern look with animations and transitions
-    - Animated pulsing status dots for connected printers
-    - Card hover effects and status-colored borders (green/red)
-    - SVG icons throughout (trash, download, printer, search)
-    - Toast notification system for save/test/error feedback
-    - Gradient buttons with press effect
-    - Chart bar tooltips on hover
-    - Ink bar gradient fills
-    - Input focus glow rings
-    - Header with app icon
     ### 1.5.1
     - Print completion monitoring — polls CUPS job status for up to 3 minutes
     - Detects stopped/held jobs (paper tray, jam, ink issues)
