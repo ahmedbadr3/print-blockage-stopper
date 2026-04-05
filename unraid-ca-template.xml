@@ -42,6 +42,17 @@
     - Centralized Settings page for global preferences and notifications
     - TanStack Query for efficient data fetching with background refresh
     - Fully responsive design with collapsible sidebar
+    ### 1.6.0
+    - Dashboard visual refresh — modern look with animations and transitions
+    - Animated pulsing status dots for connected printers
+    - Card hover effects and status-colored borders (green/red)
+    - SVG icons throughout (trash, download, printer, search)
+    - Toast notification system for save/test/error feedback
+    - Gradient buttons with press effect
+    - Chart bar tooltips on hover
+    - Ink bar gradient fills
+    - Input focus glow rings
+    - Header with app icon
     ### 1.5.1
     - Print completion monitoring — polls CUPS job status for up to 3 minutes
     - Detects stopped/held jobs (paper tray, jam, ink issues)
