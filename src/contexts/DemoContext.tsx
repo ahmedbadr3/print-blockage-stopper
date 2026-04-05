@@ -18,7 +18,11 @@ export function DemoProvider({ children }: { children: ReactNode }) {
   const [apiBaseUrl, setApiBaseUrl] = useState(() =>
     localStorage.getItem("pbs-api-url") || ""
   );
-  const [isDemo, setIsDemo] = useState(() => !localStorage.getItem("pbs-api-url"));
+  const [isDemo, setIsDemo] = useState(() => {
+    const saved = localStorage.getItem("pbs-api-url");
+    if (saved !== null) return !saved;  // user explicitly set a URL (or cleared it)
+    return !import.meta.env.PROD;       // production = live mode, dev = demo mode
+  });
 
   const handleSetUrl = (url: string) => {
     setApiBaseUrl(url);

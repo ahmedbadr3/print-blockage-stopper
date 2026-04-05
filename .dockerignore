@@ -28,6 +28,10 @@ docker-compose*.yml
 .DS_Store
 Thumbs.db
 
+# Node / Bun
+node_modules
+dist
+
 # CI/CD
 .github
 .gitlab-ci.yml

@@ -20,7 +20,8 @@ export function createApi(baseUrl: string, isDemo: boolean) {
   return {
     async getPrinters(): Promise<Printer[]> {
       if (isDemo) return demoState.printers;
-      return request("/api/printers");
+      const data = await request<{ printers: Printer[] }>("/api/printers");
+      return data.printers;
     },
 
     async addPrinter(printer: Partial<Printer>): Promise<void> {
@@ -89,7 +90,8 @@ export function createApi(baseUrl: string, isDemo: boolean) {
 
     async getHistory(): Promise<PrintHistoryEntry[]> {
       if (isDemo) return demoState.history;
-      return request("/api/history");
+      const data = await request<{ history: PrintHistoryEntry[] }>("/api/history");
+      return data.history;
     },
 
     async getLogs(): Promise<string[]> {
@@ -105,7 +107,8 @@ export function createApi(baseUrl: string, isDemo: boolean) {
           { ip: "192.168.1.60", model: "Epson ET-2850" },
         ];
       }
-      return request("/api/discover");
+      const data = await request<{ printers: Array<{ ip: string; model?: string }> }>("/api/discover");
+      return data.printers;
     },
 
     async testConnection(ip: string, connection: string, port: number) {
@@ -120,7 +123,8 @@ export function createApi(baseUrl: string, isDemo: boolean) {
 
     async getPresets(): Promise<string[]> {
       if (isDemo) return ["nozzle-check", "color-bars", "gradient", "photo-test", "alignment"];
-      return request("/api/presets");
+      const data = await request<{ presets: string[]; uploads: string[] }>("/api/presets");
+      return [...data.presets, ...data.uploads];
     },
 
     async saveSettings(settings: Partial<AppSettings>): Promise<void> {
@@ -130,7 +134,7 @@ export function createApi(baseUrl: string, isDemo: boolean) {
 
     async testNotification(type: string): Promise<void> {
       if (isDemo) return;
-      await request("/api/notifications/test", { method: "POST", body: JSON.stringify({ type }) });
+      await request("/api/notifications/test", { method: "POST", body: JSON.stringify({ channel: type }) });
     },
   };
 }
