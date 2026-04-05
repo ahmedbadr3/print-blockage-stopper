@@ -32,7 +32,7 @@ export default function PrinterCard({ printer, onEdit }: Props) {
     unknown: { color: "text-muted-foreground", glow: "", icon: WifiOff, label: "Unknown" },
   };
 
-  const status = statusConfig[printer.status];
+  const status = statusConfig[printer.status] || statusConfig.unknown;
   const StatusIcon = status.icon;
 
   return (
