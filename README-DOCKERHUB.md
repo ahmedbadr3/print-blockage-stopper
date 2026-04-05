@@ -4,6 +4,12 @@ Automated maintenance prints for **any network printer** (IPP Everywhere compati
 
 Pigment printers—especially wide-format models—clog when they sit idle. This container sends a tiny test print on a schedule to keep all ink channels flowing — saving you from expensive cleaning cycles and wasted ink.
 
+## What's New in v2.0.0
+
+The dashboard has been completely rebuilt with **React, TypeScript, and Tailwind CSS** — a modern single-page application replacing the original Python-served UI. New features include multi-page navigation (Dashboard, History, Settings), dark mode, redesigned printer cards, modal-based printer management, filterable print history with charts, and fully responsive design.
+
+All backend functionality remains unchanged — this is a drop-in upgrade.
+
 ## Features
 
 - **Multi-printer support** — manage multiple printers from a single container
@@ -11,7 +17,7 @@ Pigment printers—especially wide-format models—clog when they sit idle. This
 - **Smart scheduling** — skip the maintenance print if the printer was recently used
 - **Preset test images** — optimised for 4, 6, 8, 11, and 12-colour printers
 - **Custom image upload** — use your own test pattern (up to 5 MB)
-- **Web dashboard** — per-printer status, schedule controls, print history chart
+- **Modern React dashboard** — redesigned UI with dark mode, sidebar navigation, and dedicated pages
 - **Pause/resume** — toggle schedules per-printer from the dashboard
 - **Connection status** — real-time green/red indicators per printer
 - **Ink levels** — live ink level bars via IPP attributes
@@ -20,7 +26,7 @@ Pigment printers—especially wide-format models—clog when they sit idle. This
 - **Email notifications** — SMTP-based alerts on print success/failure
 - **Home Assistant integration** — persistent notifications via HA REST API
 - **CSV export** — download print history as CSV
-- **Mobile-friendly** — responsive dashboard layout
+- **Mobile-friendly** — responsive dashboard layout with collapsible sidebar
 - **Unraid notifications** — get alerts on print failures
 
 ## Quick start
@@ -92,7 +98,7 @@ All settings are optional — printers can be added entirely from the dashboard.
 
 ## Dashboard
 
-The dashboard at port 8631 lets you:
+The new React dashboard at port 8631 lets you:
 - Add and remove printers (manual IP or auto-discover)
 - View per-printer status and print history
 - Pause/resume schedules per printer
@@ -105,16 +111,17 @@ The dashboard at port 8631 lets you:
 - Rename printers inline
 - Configure notifications (webhook, email, Home Assistant)
 - Export print history as CSV
+- Switch between light and dark mode
 
 ## Notifications
 
-All notification channels are configured from the dashboard under the **Notifications** card. Each channel is independent — enable any combination.
+All notification channels are configured from the dashboard under **Settings > Notifications**. Each channel is independent — enable any combination.
 
 **Webhook** — Enter any URL that accepts JSON POST requests. Compatible with Slack incoming webhooks, Discord webhooks, ntfy, and similar services.
 
 **Email (SMTP)** — Configure your SMTP server details (server, port, from/to addresses, optional auth). Works with Gmail, Outlook, Mailgun, or any SMTP provider. TLS (STARTTLS) is enabled by default.
 
-**Home Assistant** — Enter your HA instance URL and a long-lived access token. Creates a persistent notification in the HA sidebar on each print event. Supports self-signed certificates (toggle "Verify SSL" off). To create a token: HA profile → Long-Lived Access Tokens → Create Token.
+**Home Assistant** — Enter your HA instance URL and a long-lived access token. Creates a persistent notification in the HA sidebar on each print event. Supports self-signed certificates (toggle "Verify SSL" off). To create a token: HA profile > Long-Lived Access Tokens > Create Token.
 
 Each tab has a **Test** button to verify your config before relying on it.
 

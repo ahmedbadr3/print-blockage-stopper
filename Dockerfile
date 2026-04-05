@@ -5,7 +5,7 @@
 # healthy by sending a small test print on a schedule. Supports multiple
 # printers, mDNS discovery, custom test images, and a web dashboard.
 #
-# v1.5: Email/HA notifications, print completion monitoring, security fixes
+# v2.0: React/TypeScript dashboard redesign, dark mode, multi-page layout
 ###############################################################################
 
 FROM debian:bookworm-slim
