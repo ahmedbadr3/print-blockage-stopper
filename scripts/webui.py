@@ -18,6 +18,7 @@ Full-featured dashboard with:
 import base64
 import csv
 import fcntl
+import hmac
 import http.server
 import io
 import json
@@ -30,6 +31,9 @@ from datetime import datetime
 from pathlib import Path
 
 PORT = 8631
+# Optional: when set, every page and API call needs HTTP Basic auth with this
+# password (any username). /healthz stays open for the container healthcheck.
+DASHBOARD_PASSWORD = os.environ.get("DASHBOARD_PASSWORD", "")
 DATA_DIR = "/data"
 PRINTERS_FILE = f"{DATA_DIR}/printers.json"
 HISTORY_FILE = f"{DATA_DIR}/print-history.json"
@@ -58,11 +62,13 @@ SECRET_SENTINEL = "***"
 def redact_config(data):
     """Copy of the config safe to return over the unauthenticated API.
 
-    Credentials are replaced with the same "***" sentinel the dashboard
+    Credentials (and the webhook URL) are replaced with the same "***" sentinel the dashboard
     form uses, so the save handlers keep the stored value when it is sent back.
     """
     out = json.loads(json.dumps(data))
     g = out.get("global", {})
+    if g.get("webhook_url"):
+        g["webhook_url"] = SECRET_SENTINEL  # Slack/Discord URLs embed their token
     for section, key in (("email", "smtp_password"), ("homeassistant", "ha_token")):
         cfg = g.get(section)
         if isinstance(cfg, dict) and cfg.get(key):
@@ -94,7 +100,7 @@ def add_cups_printer(printer):
         subprocess.run(
             ["lpadmin", "-p", cups_name, "-v", uri, "-m", "everywhere",
              "-L", "Network", "-D", printer.get("name", cups_name),
-             "-o", f"media={paper}"],
+             "-o", f"media={paper}", "-o", "printer-error-policy=abort-job"],
             check=True, capture_output=True, timeout=15)
         subprocess.run(["cupsaccept", cups_name], capture_output=True, timeout=5)
         subprocess.run(["cupsenable", cups_name], capture_output=True, timeout=5)
@@ -108,6 +114,36 @@ def remove_cups_printer(cups_name):
         subprocess.run(["lpadmin", "-x", cups_name], capture_output=True, timeout=10)
     except Exception:
         pass
+
+# ── Print queue ─────────────────────────────────────────────────
+
+def get_queue(cups_name):
+    """Jobs still waiting in CUPS for this printer, oldest first."""
+    try:
+        result = subprocess.run(["lpstat", "-o", cups_name],
+                                capture_output=True, text=True, timeout=10)
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return []
+    jobs = []
+    for line in result.stdout.splitlines():
+        parts = line.split(None, 3)
+        if len(parts) == 4 and parts[0].startswith(f"{cups_name}-"):
+            jobs.append({"id": parts[0], "user": parts[1], "size": parts[2],
+                         "submitted": parts[3].strip()})
+    return jobs
+
+def cancel_queue(cups_name, job_id=None):
+    """Cancel one job (if job_id) or every queued job for this printer."""
+    if job_id is None:
+        cmd = ["cancel", "-a", cups_name]
+    elif re.fullmatch(re.escape(cups_name) + r"-\d+", job_id):
+        cmd = ["cancel", job_id]
+    else:
+        return False
+    try:
+        return subprocess.run(cmd, capture_output=True, timeout=10).returncode == 0
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return False
 
 # ── Printer probing ─────────────────────────────────────────────
 
@@ -326,7 +362,30 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
 
+    def _authorised(self):
+        """Enforce DASHBOARD_PASSWORD if set; sends the 401 itself when not."""
+        if not DASHBOARD_PASSWORD or self.path == "/healthz":
+            return True
+        header = self.headers.get("Authorization", "")
+        if header.startswith("Basic "):
+            try:
+                _, _, password = base64.b64decode(header[6:]).decode().partition(":")
+                if hmac.compare_digest(password.encode(), DASHBOARD_PASSWORD.encode()):
+                    return True
+            except ValueError:
+                pass
+        self.send_response(401)
+        self.send_header("WWW-Authenticate", 'Basic realm="Print Blockage Stopper"')
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+        return False
+
     def do_GET(self):
+        if not self._authorised():
+            return
+        if self.path == "/healthz":
+            self._json_response({"ok": True})
+            return
         if self.path == "/favicon.ico":
             try:
                 with open("/app/favicon.ico", "rb") as f:
@@ -374,6 +433,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     })
             else:
                 self._json_response({"next_iso": None, "paused": False})
+        elif self.path.startswith("/api/queue/"):
+            printer = self._find_printer(self.path.split("/")[-1])
+            if printer:
+                self._json_response({"jobs": get_queue(printer["cups_name"])})
+            else:
+                self._json_response({"ok": False, "message": "Unknown printer"}, 404)
         elif self.path.startswith("/api/probe/"):
             ip = self.path.split("/")[-1]
             self._json_response(probe_printer(ip))
@@ -420,6 +485,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         return True
 
     def do_POST(self):
+        if not self._authorised():
+            return
         if not self._check_origin():
             return
         if self.path == "/api/printers/add":
@@ -438,6 +505,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             else:
                 trigger_print(pid)
                 self._json_response({"ok": True, "message": f"Print triggered for {pid}"})
+        elif self.path.startswith("/api/queue/") and self.path.endswith("/cancel"):
+            self._handle_cancel_queue(self.path.split("/")[-2])
         elif self.path.startswith("/api/toggle-schedule/"):
             pid = self.path.split("/")[-1]
             self._handle_toggle_schedule(pid)
@@ -453,6 +522,26 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._handle_notifications_test()
         else:
             self.send_error(404)
+
+    def _find_printer(self, printer_id):
+        return next((p for p in read_printers()["printers"] if p["id"] == printer_id), None)
+
+    def _handle_cancel_queue(self, printer_id):
+        printer = self._find_printer(printer_id)
+        if not printer:
+            self._json_response({"ok": False, "message": "Unknown printer"}, 404)
+            return
+        try:
+            body = self._read_json_body()
+        except json.JSONDecodeError:
+            self._json_response({"ok": False, "message": "Invalid JSON"}, 400)
+            return
+        job_id = body.get("job_id")
+        if job_id is not None and not isinstance(job_id, str):
+            self._json_response({"ok": False, "message": "Invalid job_id"}, 400)
+            return
+        ok = cancel_queue(printer["cups_name"], job_id)
+        self._json_response({"ok": ok, "jobs": get_queue(printer["cups_name"])}, 200 if ok else 400)
 
     def _read_json_body(self):
         length = int(self.headers.get("Content-Length", 0))
@@ -597,6 +686,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._json_response({"ok": False, "message": "Invalid JSON"}, 400)
             return
         data = read_printers()
+        if body.get("webhook_url", "").strip() == SECRET_SENTINEL:
+            self._json_response({"ok": True})  # unchanged
+            return
         if "webhook_url" in body:
             url = body["webhook_url"].strip()
             if url:
@@ -725,7 +817,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if "config" in body:
             fc = body["config"]
             if channel == "webhook":
-                config["webhook_url"] = fc.get("webhook_url", config.get("webhook_url", ""))
+                url = fc.get("webhook_url", SECRET_SENTINEL)
+                if url != SECRET_SENTINEL:
+                    config["webhook_url"] = url
             elif channel == "email":
                 ec = dict(config.get("email", {}))
                 for k in ("smtp_server", "smtp_port", "smtp_from", "smtp_to", "smtp_username", "smtp_tls"):
@@ -946,6 +1040,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
           <span>Last: <span id="status-time-{p["id"]}">{html_mod.escape(st["timestamp"])}</span></span>
           <span id="status-msg-{p["id"]}">{html_mod.escape(st["message"])}</span>
         </div>
+        <div class="queue-box" id="queue-{p["id"]}" style="display:none;"></div>
         <div class="ink-bar-container" id="ink-{p["id"]}"></div>
         <div class="printer-controls">
           <div class="control-group">
@@ -1032,6 +1127,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
   .printer-card {{ border-left: 3px solid #334155; transition: border-color 0.3s, transform 0.2s, box-shadow 0.2s; }}
   .printer-card.status-ok {{ border-left-color: #22c55e; }}
   .printer-card.status-error {{ border-left-color: #ef4444; }}
+  .queue-box {{ margin: 8px 0; padding: 8px 10px; border-radius: 6px; background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.35); font-size: 0.8rem; }}
+  .queue-box.queue-warn {{ background: rgba(239,68,68,0.08); border-color: rgba(239,68,68,0.45); }}
+  .queue-head {{ display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: space-between; }}
+  .queue-job {{ display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 3px 0; border-top: 1px solid rgba(148,163,184,0.15); }}
   .printer-header {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }}
   .printer-name {{ font-size: 1.05rem; font-weight: 600; cursor: pointer; border-bottom: 1px dashed transparent; }}
   .printer-name:hover {{ border-bottom-color: #64748b; }}
@@ -1271,7 +1370,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
     <div class="notif-panel active" id="notif-webhook">
       <p class="meta" style="margin-bottom:8px;">HTTP POST notifications (Slack, Discord, ntfy, etc.).</p>
       <div class="webhook-row">
-        <input type="url" class="input-sm" id="webhookUrl" value="{html_mod.escape(webhook_url)}"
+        <input type="url" class="input-sm" id="webhookUrl" value="{SECRET_SENTINEL if webhook_url else ""}"
                placeholder="https://hooks.slack.com/..." style="flex:1;">
         <button class="btn btn-primary btn-sm" onclick="saveWebhook()">Save</button>
         <button class="btn btn-sm" onclick="testNotification('webhook')">Test</button>
@@ -1371,7 +1470,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
     <a href="/printers" target="_blank">CUPS Printer Status (port 631)</a>
   </div>
 
-  <div class="footer">print-blockage-stopper v1.5.1</div>
+  <div class="footer">print-blockage-stopper v2.1.0</div>
 </div>
 <div class="toast-container" id="toastContainer"></div>
 
@@ -1784,6 +1883,57 @@ function refreshAllStatus() {{
   }});
 }}
 
+// ── Print queue ─────────────────────────────────────────
+function renderQueue(id, jobs) {{
+  const box = document.getElementById('queue-' + id);
+  if (!box) return;
+  box.replaceChildren();
+  if (!jobs || !jobs.length) {{ box.style.display = 'none'; return; }}
+  const n = jobs.length;
+  const el = (tag, cls, text) => {{
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text) e.textContent = text;
+    return e;
+  }};
+  const cancelBtn = (label, jobId, danger) => {{
+    const b = el('button', 'btn btn-sm', label);
+    b.style.background = danger ? '#ef4444' : '#475569';
+    b.addEventListener('click', () => cancelQueue(id, jobId));
+    return b;
+  }};
+  box.className = 'queue-box' + (n > 1 ? ' queue-warn' : '');
+  const head = el('div', 'queue-head');
+  head.append(el('strong', '', n + ' job' + (n > 1 ? 's' : '') + ' waiting in queue'), cancelBtn('Cancel all', null, true));
+  box.append(head);
+  if (n > 1) {{
+    const warn = el('div', '', 'If the printer comes back online, all ' + n + ' will print at once.');
+    warn.style.marginTop = '4px';
+    box.append(warn);
+  }}
+  jobs.forEach(j => {{
+    const row = el('div', 'queue-job');
+    row.append(el('span', '', j.id + ' \u00b7 ' + j.submitted), cancelBtn('Cancel', j.id, false));
+    box.append(row);
+  }});
+  box.style.display = '';
+}}
+
+function refreshQueues() {{
+  document.querySelectorAll('.printer-card').forEach(card => {{
+    const id = card.dataset.id;
+    api('/api/queue/' + id, 'GET').then(d => renderQueue(id, d.jobs)).catch(() => {{}});
+  }});
+}}
+
+function cancelQueue(id, jobId) {{
+  const body = jobId ? {{ job_id: jobId }} : {{}};
+  api('/api/queue/' + id + '/cancel', 'POST', body).then(d => {{
+    showToast(d.ok ? (jobId ? 'Job cancelled' : 'Queue cleared') : (d.message || 'Could not cancel'), d.ok ? 'success' : 'error');
+    renderQueue(id, d.jobs);
+  }});
+}}
+
 // ── Next print countdown ────────────────────────────────
 const nextPrintTimes = {{}};
 
@@ -1850,8 +2000,10 @@ initSchedulePickers();
 probeAllPrinters();
 refreshAllStatus();
 refreshNextPrint();
+refreshQueues();
 setInterval(refreshLogs, 30000);
 setInterval(refreshAllStatus, 15000);  // Re-check print status every 15s
+setInterval(refreshQueues, 15000);  // Re-check queued jobs every 15s
 setInterval(probeAllPrinters, 60000);  // Re-check connectivity every 60s
 setInterval(refreshNextPrint, 60000);  // Re-fetch next print times every 60s
 setInterval(updateAllCountdowns, 60000);  // Update countdown display every 60s

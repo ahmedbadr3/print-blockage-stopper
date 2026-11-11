@@ -35,6 +35,10 @@ Search for **print-blockage-stopper** in Community Applications and click Instal
 - **Connection status** — real-time green/red indicators
 - **Ink levels** — live ink level bars via IPP attributes
 - **Auto-retry** — retries failed prints once after 30 seconds
+- **No print backlog** — unconfirmed jobs are cancelled and offline printers are skipped, so nothing piles up to print all at once later
+- **Queue management** — see jobs waiting for each printer and cancel one or all from the dashboard
+- **Failure alerts** — alerts once several runs in a row fail (default 2), and again when printing recovers
+- **Optional password** — set `DASHBOARD_PASSWORD` to protect the dashboard and API
 - **Notifications** — webhook (Slack/Discord/ntfy), email (SMTP), and Home Assistant
 - **CSV export** — download print history
 - **Mobile-friendly** — responsive layout
@@ -53,6 +57,9 @@ All settings are optional. Printers can be added entirely from the dashboard.
 | `CONNECTION` | `ipp` | Connection type: `ipp` or `socket` |
 | `PRINTER_PORT` | `9100` | Socket port (only with `CONNECTION=socket`) |
 | `WEBHOOK_URL` | *(empty)* | Webhook URL for notifications |
+| `DASHBOARD_PASSWORD` | *(empty)* | If set, the dashboard and API require this password (HTTP Basic auth, any username) |
+| `JOB_TIMEOUT` | `600` | Seconds to wait for a print to complete before cancelling it |
+| `FAILURE_ALERT_THRESHOLD` | `2` | Alert once this many runs in a row have failed |
 
 ### Schedule Examples
 
@@ -92,10 +99,11 @@ Each channel has a **Test** button to verify your setup.
 
 1. On startup, the container runs CUPS and registers your printers
 2. A cron job triggers `auto-print.sh` on each printer's schedule
-3. The script checks if the printer was recently used (smart skip)
-4. If not, it sends a small test image via CUPS/IPP
-5. Results are logged and notifications sent to enabled channels
-6. The web dashboard (Python HTTP server on port 8631) provides controls and monitoring
+3. The script cancels any stale queued jobs, then checks if the printer was recently used (smart skip)
+4. If the printer is unreachable it records a failure and queues nothing
+5. Otherwise it sends a small test image via CUPS/IPP and waits up to `JOB_TIMEOUT` for it to complete; a job that isn't confirmed is cancelled so it can't print later
+6. Results are logged, and alerts go to enabled channels once `FAILURE_ALERT_THRESHOLD` runs in a row have failed
+7. The web dashboard (Python HTTP server on port 8631) provides controls and monitoring
 
 ## Requirements
 

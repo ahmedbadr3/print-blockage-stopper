@@ -109,7 +109,8 @@ print(any(p['ip'] == os.environ['CHECK_IP'] for p in data.get('printers', [])))
                 -m "everywhere" \
                 -L "Network" \
                 -D "Printer at $PRINTER_IP" \
-                -o media="$PAPER_SIZE" 2>/dev/null || true
+                -o media="$PAPER_SIZE" \
+                -o printer-error-policy=abort-job 2>/dev/null || true
 
             cupsaccept "$CUPS_NAME" 2>/dev/null || true
             cupsenable "$CUPS_NAME" 2>/dev/null || true
@@ -177,7 +178,7 @@ for p in data.get('printers', []):
     try:
         subprocess.run(['lpadmin', '-p', cups_name, '-v', uri, '-m', 'everywhere',
                         '-L', 'Network', '-D', p.get('name', cups_name),
-                        '-o', f'media={paper}'], check=True, capture_output=True, timeout=15)
+                        '-o', f'media={paper}', '-o', 'printer-error-policy=abort-job'], check=True, capture_output=True, timeout=15)
         subprocess.run(['cupsaccept', cups_name], capture_output=True, timeout=5)
         subprocess.run(['cupsenable', cups_name], capture_output=True, timeout=5)
         print(f'  Registered: {cups_name} -> {uri}')
@@ -219,6 +220,8 @@ export WEBHOOK_URL="${WEBHOOK_URL_FROM_CONFIG:-$WEBHOOK_URL}"
 
 # Write to /etc/environment so cron jobs inherit it
 echo "WEBHOOK_URL=\"$WEBHOOK_URL\"" >> /etc/environment
+echo "JOB_TIMEOUT=\"${JOB_TIMEOUT:-600}\"" >> /etc/environment
+echo "FAILURE_ALERT_THRESHOLD=\"${FAILURE_ALERT_THRESHOLD:-2}\"" >> /etc/environment
 
 # ── Start web UI ────────────────────────────────────────────────
 log "Starting web UI on port 8631..."
@@ -228,7 +231,7 @@ python3 /app/webui.py &
 NUM_PRINTERS=$(PBS_PRINTERS_FILE="$PRINTERS_FILE" python3 -c "import json, os; print(len(json.load(open(os.environ['PBS_PRINTERS_FILE'])).get('printers',[])))" 2>/dev/null) || NUM_PRINTERS=0
 
 log "============================================================"
-log " print-blockage-stopper v1.5.1 is running"
+log " print-blockage-stopper v2.1.0 is running"
 log " Dashboard:  http://localhost:8631"
 log " CUPS UI:    http://localhost:631"
 log " Printers:   $NUM_PRINTERS configured"

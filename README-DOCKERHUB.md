@@ -16,6 +16,10 @@ Pigment printers—especially wide-format models—clog when they sit idle. This
 - **Connection status** — real-time green/red indicators per printer
 - **Ink levels** — live ink level bars via IPP attributes
 - **Auto-retry** — retries failed prints once after 30 seconds
+- **No print backlog** — unconfirmed jobs are cancelled and offline printers are skipped, so nothing piles up to print all at once later
+- **Queue management** — see jobs waiting for each printer and cancel one or all from the dashboard
+- **Failure alerts** — alerts once several runs in a row fail (default 2), and again when printing recovers
+- **Optional password** — set `DASHBOARD_PASSWORD` to protect the dashboard and API
 - **Webhook notifications** — Slack, Discord, ntfy compatible alerts
 - **Email notifications** — SMTP-based alerts on print success/failure
 - **Home Assistant integration** — persistent notifications via HA REST API
@@ -67,6 +71,9 @@ All settings are optional — printers can be added entirely from the dashboard.
 | `CONNECTION` | `ipp` | Connection type: `ipp` or `socket` |
 | `PRINTER_PORT` | `9100` | Socket port (only with `CONNECTION=socket`) |
 | `WEBHOOK_URL` | *(empty)* | URL for success/failure notifications (Slack, Discord, ntfy) |
+| `DASHBOARD_PASSWORD` | *(empty)* | If set, the dashboard and API require this password (HTTP Basic auth, any username) |
+| `JOB_TIMEOUT` | `600` | Seconds to wait for a print to complete before cancelling it |
+| `FAILURE_ALERT_THRESHOLD` | `2` | Alert once this many runs in a row have failed |
 
 ### Schedule examples
 
@@ -100,6 +107,7 @@ The dashboard at port 8631 lets you:
 - Select preset test images (4/6/8/11/12-colour)
 - Upload custom test images
 - Trigger immediate prints
+- See jobs waiting in each printer's queue and cancel one or all
 - Test printer connection and auto-detect model
 - View real-time ink levels
 - Rename printers inline

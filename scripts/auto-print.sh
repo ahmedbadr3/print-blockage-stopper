@@ -20,6 +20,10 @@ PRINTERS_FILE="/data/printers.json"
 PRESETS_DIR="/app/presets"
 UPLOADS_DIR="/data/uploads"
 NOTIFY_SCRIPT="/unraid/notify"
+JOB_TIMEOUT="${JOB_TIMEOUT:-600}"
+FAILURE_ALERT_THRESHOLD="${FAILURE_ALERT_THRESHOLD:-2}"
+[[ "$JOB_TIMEOUT" =~ ^[0-9]+$ ]] || JOB_TIMEOUT=600
+[[ "$FAILURE_ALERT_THRESHOLD" =~ ^[0-9]+$ ]] || FAILURE_ALERT_THRESHOLD=2
 
 FORCE=false
 PRINTER_ID=""
@@ -39,6 +43,14 @@ if [ -z "$PRINTER_ID" ] || ! echo "$PRINTER_ID" | grep -qE '^[a-zA-Z0-9_-]+$'; t
 fi
 
 timestamp() { date '+%Y-%m-%d %H:%M:%S'; }
+
+# One run per printer at a time: a run cancels stale jobs, which must never
+# include a job another run is still waiting on.
+exec 9>"/tmp/pbs-${PRINTER_ID}.lock"
+if ! flock -n 9; then
+    echo "[$(timestamp)] [$PRINTER_ID] Another run is in progress — skipping." >> "$LOG_FILE"
+    exit 0
+fi
 epoch_now() { date '+%s'; }
 
 log() {
@@ -64,11 +76,53 @@ write_history() {
     fi
 }
 
+# Number of consecutive failed runs for this printer, newest first
+# ("skipped" runs neither break nor extend the streak).
+failure_streak() {
+    PBS_HISTORY_FILE="$HISTORY_FILE" PBS_PRINTER_ID="$PRINTER_ID" python3 -c "
+import json, os
+streak = 0
+try:
+    lines = open(os.environ['PBS_HISTORY_FILE']).read().splitlines()
+except FileNotFoundError:
+    lines = []
+for line in reversed(lines):
+    try:
+        e = json.loads(line)
+    except ValueError:
+        continue
+    if e.get('printer_id') != os.environ['PBS_PRINTER_ID'] or e.get('result') == 'skipped':
+        continue
+    if e.get('result') != 'error':
+        break
+    streak += 1
+print(streak)
+" 2>/dev/null || echo 0
+}
+
 notify_unraid() {
     local subject="$1" description="$2" severity="${3:-warning}"
     if [ -x "$NOTIFY_SCRIPT" ]; then
         "$NOTIFY_SCRIPT" -s "$subject" -d "$description" -i "$severity" 2>/dev/null || true
         log "Unraid notification sent: $subject"
+    fi
+}
+
+# Record a failed run. Alerts are held until FAILURE_ALERT_THRESHOLD runs in a
+# row have failed, so a single blip doesn't page anyone.
+#   fail <status message> <history message> <notify event> <notify message>
+fail() {
+    write_status "error" "$1"
+    write_history "error" "$2"
+    local streak
+    streak=$(failure_streak)
+    if [ "$streak" -ge "$FAILURE_ALERT_THRESHOLD" ]; then
+        notify_unraid "Print FAILED — $PRINTER_NAME" "$4 ($streak failed runs in a row)"
+        python3 /app/notify.py --event "$3" \
+            --printer "$PRINTER_NAME" --printer-id "$PRINTER_ID" \
+            --message "$4 ($streak failed runs in a row)" 2>/dev/null || true
+    else
+        log "Failure $streak of $FAILURE_ALERT_THRESHOLD before alerting."
     fi
 }
 
@@ -109,6 +163,8 @@ fields = {
     'SKIP_HOURS': str(p.get('skip_hours', 72)),
     'IS_PAUSED': str(p.get('paused', False)),
     'TEST_IMAGE_ID': p.get('test_image', 'preset-11'),
+    'CONNECTION': p.get('connection', 'ipp'),
+    'SOCKET_PORT': str(p.get('port', 9100)),
 }
 for k, v in fields.items():
     print(f'{k}={shlex.quote(v)}')
@@ -193,6 +249,30 @@ if ! lpstat -r &>/dev/null; then
     fi
 fi
 
+# Cancel leftover jobs. Every maintenance job is either confirmed or cancelled
+# by the run that sent it, so anything still queued is stale — and would all
+# print at once when the printer comes back.
+STALE_JOBS=$(lpstat -o "$CUPS_NAME" 2>/dev/null | awk '{print $1}' | tr '\n' ' ') || true
+if [ -n "${STALE_JOBS// /}" ]; then
+    log "Cancelling stale queued jobs: $STALE_JOBS"
+    cancel -a "$CUPS_NAME" 2>/dev/null || true
+fi
+
+# Don't queue anything for a printer that isn't there.
+if [ "$CONNECTION" = "socket" ]; then CHECK_PORT="$SOCKET_PORT"; else CHECK_PORT=631; fi
+if ! python3 -c "
+import socket, sys
+try:
+    socket.create_connection((sys.argv[1], int(sys.argv[2])), timeout=5).close()
+except OSError:
+    sys.exit(1)
+" "$PRINTER_IP" "$CHECK_PORT" 2>/dev/null; then
+    log "Printer offline ($PRINTER_IP:$CHECK_PORT unreachable) — nothing queued."
+    fail "Printer offline — nothing queued" "Printer offline - nothing queued" \
+        print_offline "Printer unreachable at $PRINTER_IP:$CHECK_PORT, maintenance print not sent"
+    exit 1
+fi
+
 # Check printer status
 PRINTER_STATUS=$(lpstat -p "$CUPS_NAME" 2>&1) || true
 log "Printer status: $PRINTER_STATUS"
@@ -222,14 +302,8 @@ JOB_OUTPUT=$(attempt_print) || {
 
     JOB_OUTPUT=$(attempt_print) || {
         log "ERROR: Print failed after retry. $JOB_OUTPUT"
-        write_status "error" "Print failed after retry: $JOB_OUTPUT"
-        write_history "error" "Print job failed (after retry)"
-        notify_unraid "Print FAILED — $PRINTER_NAME" "Could not submit job after 2 attempts. Check printer connection."
-
-        # Send notifications (webhook, email, HA) if configured
-        python3 /app/notify.py --event print_failed \
-            --printer "$PRINTER_NAME" --printer-id "$PRINTER_ID" \
-            --message "Print failed after 2 attempts" 2>/dev/null || true
+        fail "Print failed after retry: $JOB_OUTPUT" "Print job failed (after retry)" \
+            print_failed "Could not submit job after 2 attempts, check printer connection"
         exit 1
     }
 }
@@ -238,9 +312,9 @@ JOB_OUTPUT=$(attempt_print) || {
 JOB_ID=$(echo "$JOB_OUTPUT" | grep -o '[^ ]*-[0-9]*' | head -1)
 log "Job submitted: $JOB_OUTPUT (job=$JOB_ID)"
 
-# ── Wait for print completion (up to 3 minutes) ─────────────────
+# ── Wait for print completion (JOB_TIMEOUT, default 10 minutes) ──
 POLL_INTERVAL=5
-MAX_WAIT=180
+MAX_WAIT="$JOB_TIMEOUT"
 ELAPSED=0
 FINAL_STATUS="unknown"
 
@@ -286,11 +360,25 @@ fi
 
 log "Job $JOB_ID final status: $FINAL_STATUS (after ${ELAPSED}s)"
 
+# An unconfirmed job must not linger in the queue, or it prints whenever the
+# printer next comes back — along with every other one that piled up.
+if [ "$FINAL_STATUS" = "stopped" ] || [ "$FINAL_STATUS" = "timeout" ]; then
+    STOP_REASON=$(lpstat -o "$CUPS_NAME" 2>/dev/null | grep "$JOB_ID" || true)
+    cancel "$JOB_ID" 2>/dev/null && log "Cancelled job $JOB_ID" || true
+fi
+
+PRIOR_FAILURES=$(failure_streak)
+
 case "$FINAL_STATUS" in
     completed)
         write_status "ok" "Print completed successfully"
         write_history "ok" "Print completed"
-        python3 /app/notify.py --event print_completed \
+        COMPLETED_EVENT=print_completed
+        if [ "$PRIOR_FAILURES" -ge "$FAILURE_ALERT_THRESHOLD" ]; then
+            COMPLETED_EVENT=print_recovered
+            notify_unraid "Print RECOVERED — $PRINTER_NAME" "Printing again after $PRIOR_FAILURES failed runs" normal
+        fi
+        python3 /app/notify.py --event "$COMPLETED_EVENT" \
             --printer "$PRINTER_NAME" --printer-id "$PRINTER_ID" \
             --message "Print completed successfully" 2>/dev/null || true
         ;;
@@ -302,20 +390,13 @@ case "$FINAL_STATUS" in
             --message "Print job submitted" 2>/dev/null || true
         ;;
     stopped)
-        REASON=$(lpstat -o "$CUPS_NAME" 2>/dev/null | grep "$JOB_ID" || echo "Job held/stopped — check printer (paper tray, ink, jam)")
-        write_status "error" "Print stopped: $REASON"
-        write_history "error" "Print stopped by printer"
-        notify_unraid "Print STOPPED — $PRINTER_NAME" "$REASON"
-        python3 /app/notify.py --event print_stopped \
-            --printer "$PRINTER_NAME" --printer-id "$PRINTER_ID" \
-            --message "$REASON" 2>/dev/null || true
+        REASON="${STOP_REASON:-Job held/stopped — check printer (paper tray, ink, jam)}"
+        fail "Print stopped and cancelled: $REASON" "Print stopped by printer - job cancelled" \
+            print_stopped "$REASON"
         ;;
     timeout)
-        write_status "ok" "Print submitted (completion unconfirmed after ${MAX_WAIT}s)"
-        write_history "ok" "Print submitted (completion unconfirmed)"
-        python3 /app/notify.py --event print_timeout \
-            --printer "$PRINTER_NAME" --printer-id "$PRINTER_ID" \
-            --message "Completion not confirmed within ${MAX_WAIT}s — check printer" 2>/dev/null || true
+        fail "Not confirmed within ${MAX_WAIT}s — job cancelled" "Not confirmed within ${MAX_WAIT}s - job cancelled" \
+            print_timeout "Completion not confirmed within ${MAX_WAIT}s, job cancelled so it cannot print later"
         ;;
     *)
         write_status "ok" "Print job submitted"
