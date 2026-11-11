@@ -168,6 +168,10 @@ check_http "API: /api/logs" "$DASHBOARD/api/logs"
 
 # 1.8 Printer in config
 check_json "Printer appears in config" "$DASHBOARD/api/printers" "printers" "is not empty" || true
+check "API: /api/printers does not expose credentials" bash -c "curl -sf '$DASHBOARD/api/printers' | python3 -c \"
+import json,sys; g=json.load(sys.stdin).get('global',{})
+vals=[g.get('email',{}).get('smtp_password',''), g.get('homeassistant',{}).get('ha_token','')]
+sys.exit(0 if all(v in ('','***') for v in vals) else 1)\""
 PRINTER_COUNT=$(curl -sf "$DASHBOARD/api/printers" 2>/dev/null | python3 -c "import json,sys; print(len(json.load(sys.stdin).get('printers',[])))" 2>/dev/null) || PRINTER_COUNT=0
 if [ "$PRINTER_COUNT" -ge 1 ]; then
     green "  ✓ Printer count: $PRINTER_COUNT"

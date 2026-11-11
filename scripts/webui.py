@@ -53,6 +53,22 @@ def read_printers():
                                             "skip_hours": int(os.environ.get("SKIP_HOURS", "72")),
                                             "webhook_url": os.environ.get("WEBHOOK_URL", "")}}
 
+SECRET_SENTINEL = "***"
+
+def redact_config(data):
+    """Copy of the config safe to return over the unauthenticated API.
+
+    Credentials are replaced with the same "***" sentinel the dashboard
+    form uses, so the save handlers keep the stored value when it is sent back.
+    """
+    out = json.loads(json.dumps(data))
+    g = out.get("global", {})
+    for section, key in (("email", "smtp_password"), ("homeassistant", "ha_token")):
+        cfg = g.get(section)
+        if isinstance(cfg, dict) and cfg.get(key):
+            cfg[key] = SECRET_SENTINEL
+    return out
+
 def write_printers(data):
     with open(PRINTERS_FILE, "w") as f:
         fcntl.flock(f, fcntl.LOCK_EX)
@@ -327,7 +343,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if self.path == "/":
             self._serve_dashboard()
         elif self.path == "/api/printers":
-            self._json_response(read_printers())
+            self._json_response(redact_config(read_printers()))
         elif self.path == "/api/discover":
             self._json_response({"printers": discover_printers()})
         elif self.path == "/api/history":
