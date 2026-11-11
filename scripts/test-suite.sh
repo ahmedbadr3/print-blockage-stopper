@@ -357,6 +357,33 @@ else
     ((FAIL++))
 fi
 
+# 3.1a Offline printer — run records a failure and queues nothing
+if [ -n "$FAKE_ID" ]; then
+    docker exec "$CONTAINER" /app/auto-print.sh --printer-id="$FAKE_ID" --force >/dev/null 2>&1 || true
+    check_output "Offline printer: run logged as offline" "Printer offline" \
+        docker exec "$CONTAINER" tail -n 5 /data/logs/auto-print.log
+    check_output "Offline printer: history records an error" '"result":"error"' \
+        bash -c "docker exec $CONTAINER grep '$FAKE_ID' /data/print-history.json | tail -n 1"
+    QUEUED=$(curl -sf "$DASHBOARD/api/queue/$FAKE_ID" 2>/dev/null | python3 -c "import json,sys; print(len(json.load(sys.stdin)['jobs']))" 2>/dev/null) || QUEUED="?"
+    if [ "$QUEUED" = "0" ]; then
+        green "  ✓ Offline printer: nothing queued"
+        ((PASS++))
+    else
+        red "  ✗ Offline printer: expected 0 queued jobs, got $QUEUED"
+        ((FAIL++))
+    fi
+fi
+
+# 3.1b Queue API input validation
+code_of() { curl -s -o /dev/null -w "%{http_code}" "$@" 2>/dev/null || echo "000"; }
+check "Queue: unknown printer returns 404" test "$(code_of "$DASHBOARD/api/queue/printer-nope")" = "404"
+if [ -n "$FAKE_ID" ]; then
+    check "Queue: foreign job id rejected (400)" test "$(code_of -X POST -H 'Content-Type: application/json' \
+        -d '{"job_id":"OTHER_QUEUE-1"}' "$DASHBOARD/api/queue/$FAKE_ID/cancel")" = "400"
+    check "Queue: cross-origin cancel blocked (403)" test "$(code_of -X POST -H 'Content-Type: application/json' \
+        -H 'Origin: http://evil.com' -H 'Host: localhost:8631' -d '{}' "$DASHBOARD/api/queue/$FAKE_ID/cancel")" = "403"
+fi
+
 # 3.2 Duplicate IP rejected
 DUP_RESP=$(curl -sf -X POST \
     -H "Content-Type: application/json" \
@@ -530,6 +557,25 @@ fi
 
 # 5.2 No errors in logs with empty config
 check "No errors with empty config" bash -c "! docker logs $CONTAINER 2>&1 | grep -i 'ERROR'"
+
+# 5.3 DASHBOARD_PASSWORD protects the dashboard and API, but not /healthz
+echo "  Testing DASHBOARD_PASSWORD..."
+cleanup
+docker run -d --name "$CONTAINER" \
+    -p 8631:8631 -p 631:631 \
+    -v "$APPDATA:/data" \
+    -e DASHBOARD_PASSWORD=test-pass \
+    "$IMAGE" >/dev/null 2>&1
+for i in $(seq 1 20); do
+    curl -sf "$DASHBOARD/healthz" >/dev/null 2>&1 && break
+    sleep 1
+done
+check "Password: /healthz open" test "$(code_of "$DASHBOARD/healthz")" = "200"
+check "Password: dashboard requires auth (401)" test "$(code_of "$DASHBOARD/")" = "401"
+check "Password: API requires auth (401)" test "$(code_of "$DASHBOARD/api/printers")" = "401"
+check "Password: wrong password rejected (401)" test "$(code_of -u admin:wrong "$DASHBOARD/api/printers")" = "401"
+check "Password: correct password accepted (200)" test "$(code_of -u admin:test-pass "$DASHBOARD/api/printers")" = "200"
+check "Password: POST without auth rejected (401)" test "$(code_of -X POST -d '{}' "$DASHBOARD/api/print-now/all")" = "401"
 
 echo ""
 

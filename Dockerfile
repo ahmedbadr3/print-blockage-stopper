@@ -5,7 +5,7 @@
 # healthy by sending a small test print on a schedule. Supports multiple
 # printers, mDNS discovery, custom test images, and a web dashboard.
 #
-# v1.5: Email/HA notifications, print completion monitoring, security fixes
+# v2.1: Queue management, failed jobs cancelled, optional dashboard password
 ###############################################################################
 
 FROM debian:bookworm-slim
@@ -128,13 +128,19 @@ VOLUME ["/data"]
 # CONNECTION:    Default connection type: ipp or socket
 # SKIP_HOURS:    Default skip-if-recently-printed window (hours)
 # WEBHOOK_URL:   (Optional) URL for success/failure notifications
+# DASHBOARD_PASSWORD: (Optional) Require this password for the dashboard/API
+# JOB_TIMEOUT:   Seconds to wait for a print to complete before cancelling it
+# FAILURE_ALERT_THRESHOLD: Alert once this many runs in a row have failed
 ENV PRINTER_IP="" \
     PRINTER_PORT="9100" \
     SCHEDULE="0 10 */3 * *" \
     PAPER_SIZE="A4" \
     CONNECTION="ipp" \
     SKIP_HOURS="72" \
-    WEBHOOK_URL=""
+    WEBHOOK_URL="" \
+    DASHBOARD_PASSWORD="" \
+    JOB_TIMEOUT="600" \
+    FAILURE_ALERT_THRESHOLD="2"
 
 # ── Expose ports ──────────────────────────────────────────────
 EXPOSE 631
@@ -142,6 +148,6 @@ EXPOSE 8631
 
 # ── Health check ─────────────────────────────────────────────
 HEALTHCHECK --interval=60s --timeout=10s --retries=3 \
-    CMD curl -sf http://localhost:8631/ || exit 1
+    CMD curl -sf http://localhost:8631/healthz || exit 1
 
 ENTRYPOINT ["/app/entrypoint.sh"]

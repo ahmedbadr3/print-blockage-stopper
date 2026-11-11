@@ -157,7 +157,8 @@ def log(msg):
 def main():
     parser = argparse.ArgumentParser(description="Send notifications for print events")
     parser.add_argument("--event", required=True,
-                        choices=["print_ok", "print_completed", "print_failed", "print_stopped", "print_timeout", "test"])
+                        choices=["print_ok", "print_completed", "print_recovered", "print_failed", "print_stopped",
+                                 "print_timeout", "print_offline", "test"])
     parser.add_argument("--printer", default="")
     parser.add_argument("--printer-id", default="")
     parser.add_argument("--message", default="")
@@ -185,6 +186,14 @@ def main():
         subject = f"Print Completed — {args.printer}"
         body = f"Print job completed successfully for {args.printer}.\n\n{args.message}\n\nTimestamp: {now}"
         ha_message = f"✅ Print completed: {args.printer}"
+    elif args.event == "print_recovered":
+        subject = f"Print Recovered — {args.printer}"
+        body = f"Maintenance prints are working again for {args.printer}.\n\n{args.message}\n\nTimestamp: {now}"
+        ha_message = f"✅ Printing again: {args.printer}"
+    elif args.event == "print_offline":
+        subject = f"Printer OFFLINE — {args.printer}"
+        body = f"{args.printer} could not be reached, so no maintenance print was sent (nothing was queued).\n\n{args.message}\n\nTimestamp: {now}"
+        ha_message = f"⚠️ Printer offline: {args.printer} — maintenance print skipped"
     elif args.event == "print_ok":
         # Legacy / submission-only confirmation
         subject = f"Print OK — {args.printer}"
@@ -196,7 +205,7 @@ def main():
         ha_message = f"⚠️ Print stopped: {args.printer} — check printer"
     elif args.event == "print_timeout":
         subject = f"Print Unconfirmed — {args.printer}"
-        body = f"Print job was submitted for {args.printer} but completion could not be confirmed within the monitoring window.\n\nThe print may still complete — check the printer.\n\n{args.message}\n\nTimestamp: {now}"
+        body = f"Print job was submitted for {args.printer} but completion could not be confirmed within the monitoring window, so it was cancelled.\n\nCheck the printer (power, paper, ink).\n\n{args.message}\n\nTimestamp: {now}"
         ha_message = f"⏳ Print unconfirmed: {args.printer} — check printer"
     elif args.event == "print_failed":
         subject = f"Print FAILED — {args.printer}"

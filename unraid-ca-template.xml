@@ -32,6 +32,17 @@
   <Requires>Any network printer with IPP Everywhere support (usually any modern networked printer). Especially useful for pigment printers.</Requires>
   <Beta>false</Beta>
   <Changes>
+    ### 2.1.0
+    - Security: /api/printers no longer returns the SMTP password, Home Assistant token or webhook URL. If you ran an earlier version with any of these set, rotate them
+    - Optional dashboard password (DASHBOARD_PASSWORD) protecting the dashboard and API
+    - Unconfirmed prints are now cancelled instead of left queued, so they can't all print at once when the printer comes back
+    - Offline printers are skipped; nothing is queued
+    - Stale jobs are cleared before each maintenance print
+    - Queue panel on each printer card: see waiting jobs, cancel one or all
+    - Unconfirmed prints are recorded as failures, not OK
+    - Alerts after repeated failures (FAILURE_ALERT_THRESHOLD, default 2) and when printing recovers
+    - Completion wait raised from 3 to 10 minutes (JOB_TIMEOUT)
+    - Built on the 1.5.x dashboard (supersedes the 1.6.0/2.0.0 React builds)
     ### 1.5.1
     - Print completion monitoring — polls CUPS job status for up to 3 minutes
     - Detects stopped/held jobs (paper tray, jam, ink issues)
@@ -162,7 +173,7 @@
     Type="Variable"
     Display="advanced"
     Required="false"
-    Mask="false"></Config>
+    Mask="true"></Config>
 
   <Config
     Name="Printer Port"
@@ -173,6 +184,36 @@
     Display="advanced"
     Required="false"
     Mask="false">9100</Config>
+
+  <Config
+    Name="Dashboard Password"
+    Target="DASHBOARD_PASSWORD"
+    Default=""
+    Description="(Optional) Require this password for the dashboard and API (HTTP Basic auth, any username). Recommended: the dashboard can change notification settings."
+    Type="Variable"
+    Display="always"
+    Required="false"
+    Mask="true"></Config>
+
+  <Config
+    Name="Job Timeout (seconds)"
+    Target="JOB_TIMEOUT"
+    Default="600"
+    Description="How long to wait for a maintenance print to complete. Unconfirmed jobs are cancelled so they can't print later."
+    Type="Variable"
+    Display="advanced"
+    Required="false"
+    Mask="false">600</Config>
+
+  <Config
+    Name="Failure Alert Threshold"
+    Target="FAILURE_ALERT_THRESHOLD"
+    Default="2"
+    Description="Send failure alerts once this many runs in a row have failed."
+    Type="Variable"
+    Display="advanced"
+    Required="false"
+    Mask="false">2</Config>
 
   <!-- ── Volumes ──────────────────────────────────────────── -->
   <Config
